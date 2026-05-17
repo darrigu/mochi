@@ -48,10 +48,58 @@ impl VM {
                     let popped = self.pop();
                     self.last_popped_stack_elem = Some(popped);
                 }
+                Opcode::OpTrue => self.push(Object::Boolean(true))?,
+                Opcode::OpFalse => self.push(Object::Boolean(false))?,
+                Opcode::OpEqual | Opcode::OpNotEqual => self.execute_comparison(op)?,
+                Opcode::OpMinus => self.execute_minus_operator()?,
+                Opcode::OpBang => self.execute_bang_operator()?,
             }
         }
 
         Ok(())
+    }
+
+    fn execute_comparison(&mut self, op: Opcode) -> Result<(), String> {
+        let right = self.pop();
+        let left = self.pop();
+
+        if let (Object::Number(l), Object::Number(r)) = (&left, &right) {
+            let result = match op {
+                Opcode::OpEqual => l == r,
+                Opcode::OpNotEqual => l != r,
+                _ => unreachable!(),
+            };
+            return self.push(Object::Boolean(result));
+        }
+
+        if let (Object::Boolean(l), Object::Boolean(r)) = (&left, &right) {
+            let result = match op {
+                Opcode::OpEqual => l == r,
+                Opcode::OpNotEqual => l != r,
+                _ => unreachable!(),
+            };
+            return self.push(Object::Boolean(result));
+        }
+
+        Err("Unsupported types for comparison".to_string())
+    }
+
+    fn execute_minus_operator(&mut self) -> Result<(), String> {
+        let operand = self.pop();
+        if let Object::Number(val) = operand {
+            self.push(Object::Number(-val))
+        } else {
+            Err(format!("Unsupported type for negation: {:?}", operand))
+        }
+    }
+
+    fn execute_bang_operator(&mut self) -> Result<(), String> {
+        let operand = self.pop();
+        let result = match operand {
+            Object::Boolean(val) => !val,
+            _ => false,
+        };
+        self.push(Object::Boolean(result))
     }
 
     fn execute_binary_operation(&mut self, op: Opcode) -> Result<(), String> {

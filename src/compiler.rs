@@ -54,13 +54,30 @@ impl Compiler {
                     "-" => self.emit(Opcode::OpSub, &[]),
                     "*" => self.emit(Opcode::OpMul, &[]),
                     "/" => self.emit(Opcode::OpDiv, &[]),
+                    "==" => self.emit(Opcode::OpEqual, &[]),
+                    "!=" => self.emit(Opcode::OpNotEqual, &[]),
                     _ => return Err(format!("Unknown operator: {}", operator)),
+                };
+            }
+            Expression::Prefix { operator, right } => {
+                self.compile_expression(right)?;
+                match operator.as_str() {
+                    "-" => self.emit(Opcode::OpMinus, &[]),
+                    "!" => self.emit(Opcode::OpBang, &[]),
+                    _ => return Err(format!("Unknown prefix operator: {}", operator)),
                 };
             }
             Expression::Number(val) => {
                 let obj = Object::Number(*val);
                 let pos = self.add_constant(obj);
                 self.emit(Opcode::OpConstant, &[pos]);
+            }
+            Expression::Boolean(val) => {
+                if *val {
+                    self.emit(Opcode::OpTrue, &[]);
+                } else {
+                    self.emit(Opcode::OpFalse, &[]);
+                }
             }
             _ => return Err(format!("Unimplemented expression: {:?}", expr)),
         }

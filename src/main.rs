@@ -12,7 +12,7 @@ use parser::Parser;
 use vm::VM;
 
 fn main() {
-    let input = "5 + 10 * 2 - 4 / 2";
+    let input = "!(5 * -2 == -10)";
 
     println!("Compiling Mochi script:\n{}\n", input);
 
