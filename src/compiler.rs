@@ -27,12 +27,16 @@ pub struct SymbolTable {
 
 impl SymbolTable {
     pub fn new() -> Self {
-        Self {
+        let mut table = Self {
             store: HashMap::new(),
             num_definitions: 0,
             outer: None,
             free_symbols: vec![],
-        }
+        };
+
+        table.define("print".to_string(), true);
+
+        table
     }
 
     pub fn new_enclosed(outer: SymbolTable) -> Self {
@@ -301,7 +305,6 @@ impl Compiler {
                 self.compile_expression(expr)?;
                 self.emit(Opcode::OpReturnValue, &[]);
             }
-            _ => return Err(format!("Unimplemented expression: {:?}", expr)),
         }
         Ok(())
     }

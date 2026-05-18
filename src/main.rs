@@ -13,6 +13,19 @@ use std::env;
 use std::fs;
 use std::process;
 
+use crate::object::Object;
+
+fn builtin_print(args: Vec<Object>) -> Object {
+    for arg in args.iter() {
+        match arg {
+            Object::String(s) => print!("{}", s),
+            _ => print!("{:?}", arg),
+        }
+    }
+    println!();
+    Object::Boolean(true)
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -41,12 +54,10 @@ fn main() {
     }
 
     let mut machine = vm::VM::new(compiler.bytecode());
+    machine.set_global(0, object::Object::Native(builtin_print));
+
     if let Err(e) = machine.run() {
         println!("\x1b[31;1mvm error\x1b[0m: {}", e);
         process::exit(1);
-    }
-
-    if let Some(result) = machine.last_popped_stack_elem {
-        println!("{:?}", result);
     }
 }

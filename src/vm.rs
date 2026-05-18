@@ -40,6 +40,12 @@ impl VM {
         }
     }
 
+    pub fn set_global(&mut self, index: usize, obj: Object) {
+        if index < GLOBALS_SIZE {
+            self.globals[index] = obj;
+        }
+    }
+
     pub fn run(&mut self) -> Result<(), String> {
         let mut frame = self.frames.pop().unwrap();
 
@@ -127,32 +133,39 @@ impl VM {
 
                     let func_obj = self.stack[self.sp - 1 - num_args].clone();
 
-                    if let Object::Closure { func, free } = func_obj {
-                        if let Object::CompiledFunction {
-                            instructions,
-                            constants,
-                            num_locals,
-                            num_parameters,
-                        } = *func
-                        {
-                            if num_parameters != num_args {
-                                return Err(format!("Wrong number of arguments"));
-                            }
-
-                            self.frames.push(frame);
-                            let bp = self.sp - num_args;
-                            self.sp = bp + num_locals;
-
-                            frame = Frame {
+                    match func_obj {
+                        Object::Closure { func, free } => {
+                            if let Object::CompiledFunction {
                                 instructions,
                                 constants,
-                                free,
-                                ip: 0,
-                                bp,
-                            };
+                                num_locals,
+                                num_parameters,
+                            } = *func
+                            {
+                                if num_parameters != num_args {
+                                    return Err(format!("Wrong number of arguments"));
+                                }
+
+                                self.frames.push(frame);
+                                let bp = self.sp - num_args;
+                                self.sp = bp + num_locals;
+
+                                frame = Frame {
+                                    instructions,
+                                    constants,
+                                    free,
+                                    ip: 0,
+                                    bp,
+                                };
+                            }
                         }
-                    } else {
-                        return Err("Calling non-function".to_string());
+                        Object::Native(func) => {
+                            let args = self.stack[self.sp - num_args..self.sp].to_vec();
+                            self.sp -= num_args + 1;
+                            let result = func(args);
+                            self.push(result)?;
+                        }
+                        _ => return Err("Calling non-function".to_string()),
                     }
                 }
                 Opcode::OpReturnValue => {

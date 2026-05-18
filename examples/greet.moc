@@ -1,0 +1,5 @@
+fn greet(name) do
+    print("Hello, ", name, "!")
+end
+
+greet("Bro")

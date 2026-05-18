@@ -70,6 +70,7 @@ impl Parser {
         let mut left_expr = match &self.current_token {
             Token::Ident(name) => Some(Expression::Identifier(name.clone())),
             Token::Number(val) => Some(Expression::Number(*val)),
+            Token::StringLiteral(val) => Some(Expression::StringLiteral(val.clone())),
             Token::True => Some(Expression::Boolean(true)),
             Token::False => Some(Expression::Boolean(false)),
             Token::Bang | Token::Minus => self.parse_prefix_expression(),

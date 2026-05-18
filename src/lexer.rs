@@ -155,11 +155,7 @@ impl Lexer {
                 break;
             }
         }
-        let s = self.input[pos..self.position].iter().collect();
-        if self.ch == '"' {
-            self.read_char();
-        }
-        s
+        self.input[pos..self.position].iter().collect()
     }
 
     fn read_identifier(&mut self) -> String {
