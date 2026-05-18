@@ -152,6 +152,16 @@ impl Compiler {
                     SymbolScope::Free => self.emit(Opcode::OpGetFree, &[symbol.index]),
                 };
             }
+            Expression::Assign { name, value } => {
+                self.compile_expression(value)?;
+
+                let symbol = self.resolve_name(name)?;
+                match symbol.scope {
+                    SymbolScope::Local => self.emit(Opcode::OpSetLocal, &[symbol.index]),
+                    SymbolScope::Global => self.emit(Opcode::OpSetGlobal, &[symbol.index]),
+                    SymbolScope::Free => self.emit(Opcode::OpSetFree, &[symbol.index]),
+                };
+            }
             Expression::Function { parameters, body } => {
                 let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
 

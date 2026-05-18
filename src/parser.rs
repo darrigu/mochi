@@ -4,6 +4,7 @@ use crate::lexer::{Lexer, Token};
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
 pub enum Precedence {
     Lowest,
+    Assign,
     Equals,
     LessGreater,
     Sum,
@@ -329,6 +330,22 @@ impl Parser {
             return self.parse_call_expression(left);
         }
 
+        if self.current_token == Token::Assign {
+            self.next_token();
+
+            let value = self.parse_expression(Precedence::Lowest)?;
+
+            if let Expression::Identifier(name) = left {
+                return Some(Expression::Assign {
+                    name,
+                    value: Box::new(value),
+                });
+            } else {
+                self.errors.push("Invalid assignment target".to_string());
+                return None;
+            }
+        }
+
         let operator = match &self.current_token {
             Token::Plus => "+",
             Token::Minus => "-",
@@ -365,6 +382,7 @@ impl Parser {
                 | Token::Less
                 | Token::Greater
                 | Token::LParen
+                | Token::Assign
         )
     }
 
@@ -375,6 +393,7 @@ impl Parser {
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Star | Token::Slash => Precedence::Product,
             Token::LParen => Precedence::Call,
+            Token::Assign => Precedence::Assign,
             _ => Precedence::Lowest,
         }
     }
@@ -386,6 +405,7 @@ impl Parser {
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Star | Token::Slash => Precedence::Product,
             Token::LParen => Precedence::Call,
+            Token::Assign => Precedence::Assign,
             _ => Precedence::Lowest,
         }
     }

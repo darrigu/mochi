@@ -14,6 +14,7 @@ use parser::Parser;
 use vm::VM;
 
 fn main() {
+    // FIXME
     let input = "
         fn math_magic(x, y) do
            fn test(z) do
@@ -21,6 +22,8 @@ fn main() {
            end
            return test(20)
         end
+
+        math_magic = fn(x, y) x + y
         
         let result = math_magic(10, 5)
         result

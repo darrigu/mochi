@@ -164,6 +164,26 @@ mod tests {
     }
 
     #[test]
+    fn test_variable_assignment() {
+        test_script("let a = 5 a = 10 a", Object::Number(10.0));
+
+        test_script(
+            "let a = 5 let b = 10 a = b = 20 a + b",
+            Object::Number(40.0),
+        );
+
+        let input = "
+            fn mutate() do
+                let a = 10
+                a = 20
+                return a
+            end
+            mutate()
+        ";
+        test_script(input, Object::Number(20.0));
+    }
+
+    #[test]
     fn test_if_else_expressions() {
         test_script("if true do 10 end", Object::Number(10.0));
         test_script("if false do 10 end", Object::Boolean(false));

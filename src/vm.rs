@@ -101,6 +101,12 @@ impl VM {
                     frame.ip += 1;
                     self.push(frame.free[free_idx].clone())?;
                 }
+                Opcode::OpSetFree => {
+                    let free_idx = frame.instructions[frame.ip] as usize;
+                    frame.ip += 1;
+                    let val = self.stack[self.sp - 1].clone();
+                    frame.free[free_idx] = val;
+                }
                 Opcode::OpJump => {
                     let pos = ((frame.instructions[frame.ip] as usize) << 8)
                         | (frame.instructions[frame.ip + 1] as usize);

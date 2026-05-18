@@ -30,13 +30,18 @@ pub enum Expression {
         function: Box<Expression>,
         arguments: Vec<Expression>,
     },
+    Return(Box<Expression>),
+
     Block(Vec<Expression>),
 
     Let {
         name: String,
         value: Box<Expression>,
     },
-    Return(Box<Expression>),
+    Assign {
+        name: String,
+        value: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone)]
