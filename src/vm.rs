@@ -3,6 +3,7 @@ use crate::compiler::Bytecode;
 use crate::object::Object;
 
 const STACK_SIZE: usize = 2048;
+const GLOBALS_SIZE: usize = 65536;
 
 pub struct VM {
     constants: Vec<Object>,
@@ -10,6 +11,8 @@ pub struct VM {
 
     stack: Vec<Object>,
     sp: usize,
+
+    globals: Vec<Object>,
 
     pub last_popped_stack_elem: Option<Object>,
 }
@@ -21,6 +24,7 @@ impl VM {
             instructions: bytecode.instructions,
             stack: vec![Object::Number(0.0); STACK_SIZE],
             sp: 0,
+            globals: vec![Object::Number(0.0); GLOBALS_SIZE],
             last_popped_stack_elem: None,
         }
     }
@@ -33,6 +37,22 @@ impl VM {
             ip += 1;
 
             match op {
+                Opcode::OpSetGlobal => {
+                    let global_index = ((self.instructions[ip] as usize) << 8)
+                        | (self.instructions[ip + 1] as usize);
+                    ip += 2;
+
+                    let val = self.pop();
+                    self.globals[global_index] = val;
+                }
+                Opcode::OpGetGlobal => {
+                    let global_index = ((self.instructions[ip] as usize) << 8)
+                        | (self.instructions[ip + 1] as usize);
+                    ip += 2;
+
+                    let val = self.globals[global_index].clone();
+                    self.push(val)?;
+                }
                 Opcode::OpConstant => {
                     let const_index = ((self.instructions[ip] as usize) << 8)
                         | (self.instructions[ip + 1] as usize);

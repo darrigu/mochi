@@ -1,6 +1,33 @@
 use crate::ast::{Expression, Program, Statement};
 use crate::code::{Opcode, make};
 use crate::object::Object;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub struct SymbolTable {
+    store: HashMap<String, usize>,
+    num_definitions: usize,
+}
+
+impl SymbolTable {
+    pub fn new() -> Self {
+        Self {
+            store: HashMap::new(),
+            num_definitions: 0,
+        }
+    }
+
+    pub fn define(&mut self, name: String) -> usize {
+        let id = self.num_definitions;
+        self.store.insert(name, id);
+        self.num_definitions += 1;
+        id
+    }
+
+    pub fn resolve(&self, name: &str) -> Option<usize> {
+        self.store.get(name).copied()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Bytecode {
@@ -11,6 +38,7 @@ pub struct Bytecode {
 pub struct Compiler {
     pub instructions: Vec<u8>,
     pub constants: Vec<Object>,
+    pub symbol_table: SymbolTable,
 }
 
 impl Compiler {
@@ -18,6 +46,7 @@ impl Compiler {
         Self {
             instructions: vec![],
             constants: vec![],
+            symbol_table: SymbolTable::new(),
         }
     }
 
@@ -34,6 +63,11 @@ impl Compiler {
                 self.compile_expression(expr)?;
                 self.emit(Opcode::OpPop, &[]);
             }
+            Statement::Let { name, value } => {
+                self.compile_expression(value)?;
+                let index = self.symbol_table.define(name.clone());
+                self.emit(Opcode::OpSetGlobal, &[index]);
+            }
             _ => return Err(format!("Unimplemented statement: {:?}", stmt)),
         }
         Ok(())
@@ -41,6 +75,13 @@ impl Compiler {
 
     fn compile_expression(&mut self, expr: &Expression) -> Result<(), String> {
         match expr {
+            Expression::Identifier(name) => {
+                if let Some(index) = self.symbol_table.resolve(name) {
+                    self.emit(Opcode::OpGetGlobal, &[index]);
+                } else {
+                    return Err(format!("Undefined variable: {}", name));
+                }
+            }
             Expression::Infix {
                 left,
                 operator,

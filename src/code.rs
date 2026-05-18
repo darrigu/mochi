@@ -12,6 +12,8 @@ pub enum Opcode {
     OpNotEqual,
     OpMinus,
     OpBang,
+    OpSetGlobal,
+    OpGetGlobal,
 }
 
 impl From<u8> for Opcode {
@@ -29,6 +31,8 @@ impl From<u8> for Opcode {
             9 => Opcode::OpNotEqual,
             10 => Opcode::OpMinus,
             11 => Opcode::OpBang,
+            12 => Opcode::OpSetGlobal,
+            13 => Opcode::OpGetGlobal,
             _ => panic!("Unknown Opcode: {}", val),
         }
     }
@@ -36,7 +40,7 @@ impl From<u8> for Opcode {
 
 pub fn make(op: Opcode, operands: &[usize]) -> Vec<u8> {
     match op {
-        Opcode::OpConstant => {
+        Opcode::OpConstant | Opcode::OpSetGlobal | Opcode::OpGetGlobal => {
             let mut instruction = vec![op as u8];
             let operand = operands[0] as u16;
             instruction.extend_from_slice(&operand.to_be_bytes());
