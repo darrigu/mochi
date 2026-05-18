@@ -234,9 +234,9 @@ impl Compiler {
                 }
             }
             Expression::Let { name, value } => {
-                if let Expression::Function { parameters, body } = value.as_ref() {
-                    let symbol = self.symbol_table.define(name.clone());
+                let symbol = self.symbol_table.define(name.clone());
 
+                if let Expression::Function { parameters, body } = value.as_ref() {
                     let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
 
                     for param in parameters {
@@ -257,21 +257,14 @@ impl Compiler {
 
                     let pos = self.add_constant(fn_obj);
                     self.emit(Opcode::OpConstant, &[pos]);
-
-                    if symbol.scope == SymbolScope::Local {
-                        self.emit(Opcode::OpSetLocal, &[symbol.index]);
-                    } else {
-                        self.emit(Opcode::OpSetGlobal, &[symbol.index]);
-                    }
                 } else {
                     self.compile_expression(value)?;
-                    let symbol = self.symbol_table.define(name.clone());
+                }
 
-                    if symbol.scope == SymbolScope::Local {
-                        self.emit(Opcode::OpSetLocal, &[symbol.index]);
-                    } else {
-                        self.emit(Opcode::OpSetGlobal, &[symbol.index]);
-                    }
+                if symbol.scope == SymbolScope::Local {
+                    self.emit(Opcode::OpSetLocal, &[symbol.index]);
+                } else {
+                    self.emit(Opcode::OpSetGlobal, &[symbol.index]);
                 }
             }
             Expression::Return(expr) => {
