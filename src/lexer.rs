@@ -34,6 +34,7 @@ pub enum Token {
     Comma,
     Dot,
 
+    Illegal(char),
     EOF,
 }
 
@@ -42,6 +43,8 @@ pub struct Lexer {
     position: usize,
     read_position: usize,
     ch: char,
+    pub line: usize,
+    pub col: usize,
 }
 
 impl Lexer {
@@ -51,6 +54,8 @@ impl Lexer {
             position: 0,
             read_position: 0,
             ch: '\0',
+            line: 1,
+            col: 0,
         };
         lexer.read_char();
         lexer
@@ -62,12 +67,23 @@ impl Lexer {
         } else {
             self.ch = self.input[self.read_position];
         }
+
+        if self.ch == '\n' {
+            self.line += 1;
+            self.col = 0;
+        } else {
+            self.col += 1;
+        }
+
         self.position = self.read_position;
         self.read_position += 1;
     }
 
-    pub fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> (Token, usize, usize) {
         self.skip_whitespace();
+
+        let tok_line = self.line;
+        let tok_col = self.col;
 
         let token = match self.ch {
             '+' => Token::Plus,
@@ -102,17 +118,19 @@ impl Lexer {
             _ => {
                 if self.ch.is_alphabetic() {
                     let ident = self.read_identifier();
-                    return self.lookup_ident(&ident);
+                    return (self.lookup_ident(&ident), tok_line, tok_col);
                 } else if self.ch.is_numeric() {
-                    return Token::Number(self.read_number());
+                    return (Token::Number(self.read_number()), tok_line, tok_col);
                 } else {
-                    panic!("Unknown character: {}", self.ch);
+                    let t = Token::Illegal(self.ch);
+                    self.read_char();
+                    return (t, tok_line, tok_col);
                 }
             }
         };
 
         self.read_char();
-        token
+        (token, tok_line, tok_col)
     }
 
     fn skip_whitespace(&mut self) {

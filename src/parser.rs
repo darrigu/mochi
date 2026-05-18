@@ -13,29 +13,57 @@ pub enum Precedence {
     Call,
 }
 
+#[derive(Debug)]
+pub struct Diagnostic {
+    pub line: usize,
+    pub col: usize,
+    pub message: String,
+}
+
 pub struct Parser {
     lexer: Lexer,
     current_token: Token,
     peek_token: Token,
-    pub errors: Vec<String>,
+    cur_line: usize,
+    cur_col: usize,
+    peek_line: usize,
+    peek_col: usize,
+    pub errors: Vec<Diagnostic>,
 }
 
 impl Parser {
     pub fn new(mut lexer: Lexer) -> Self {
-        let current_token = lexer.next_token();
-        let peek_token = lexer.next_token();
-
+        let (current_token, cur_line, cur_col) = lexer.next_token();
+        let (peek_token, peek_line, peek_col) = lexer.next_token();
         Parser {
             lexer,
             current_token,
             peek_token,
+            cur_line,
+            cur_col,
+            peek_line,
+            peek_col,
             errors: vec![],
         }
     }
 
     fn next_token(&mut self) {
         self.current_token = self.peek_token.clone();
-        self.peek_token = self.lexer.next_token();
+        self.cur_line = self.peek_line;
+        self.cur_col = self.peek_col;
+
+        let (next_tok, next_line, next_col) = self.lexer.next_token();
+        self.peek_token = next_tok;
+        self.peek_line = next_line;
+        self.peek_col = next_col;
+    }
+
+    fn report_error(&mut self, msg: String) {
+        self.errors.push(Diagnostic {
+            line: self.cur_line,
+            col: self.cur_col,
+            message: msg,
+        });
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
@@ -53,10 +81,12 @@ impl Parser {
             Token::Const => self.parse_const_expression(),
             Token::Return => self.parse_return_expression(),
             _ => {
-                self.errors.push(format!(
-                    "No prefix parse function for {:?}",
-                    self.current_token
-                ));
+                let msg = match self.current_token {
+                    Token::Illegal(c) => format!("Illegal character '{}'", c),
+                    Token::EOF => "Unexpected end of file".to_string(),
+                    _ => format!("Unexpected token {:?}", self.current_token),
+                };
+                self.report_error(msg);
                 None
             }
         }?;
@@ -78,13 +108,16 @@ impl Parser {
         let name = match &self.current_token {
             Token::Ident(name) => name.clone(),
             _ => {
-                self.errors
-                    .push(format!("Expected identifier, got {:?}", self.current_token));
+                self.report_error(format!(
+                    "Expected variable name after 'let', got {:?}",
+                    self.current_token
+                ));
                 return None;
             }
         };
 
         if !self.expect_peek(Token::Assign) {
+            self.report_error(format!("Expected '=' after variable name '{}'", name));
             return None;
         }
         self.next_token();
@@ -101,13 +134,16 @@ impl Parser {
         let name = match &self.current_token {
             Token::Ident(name) => name.clone(),
             _ => {
-                self.errors
-                    .push(format!("Expected identifier, got {:?}", self.current_token));
+                self.report_error(format!(
+                    "Expected constant name after 'const', got {:?}",
+                    self.current_token
+                ));
                 return None;
             }
         };
 
         if !self.expect_peek(Token::Assign) {
+            self.report_error(format!("Expected '=' after constant name '{}'", name));
             return None;
         }
         self.next_token();
@@ -158,8 +194,7 @@ impl Parser {
         let exprs = self.parse_block_expressions();
 
         if self.current_token != Token::End {
-            self.errors
-                .push(format!("Expected 'end', got {:?}", self.current_token));
+            self.report_error(format!("Expected 'end', got {:?}", self.current_token));
             return None;
         }
 
@@ -185,8 +220,7 @@ impl Parser {
             let exprs = self.parse_block_expressions();
 
             if self.current_token != Token::End {
-                self.errors
-                    .push(format!("Expected 'end', got {:?}", self.current_token));
+                self.report_error(format!("Expected 'end', got {:?}", self.current_token));
                 return None;
             }
 
@@ -289,8 +323,7 @@ impl Parser {
             }
 
             if self.current_token != Token::End {
-                self.errors
-                    .push(format!("Expected 'end', got {:?}", self.current_token));
+                self.report_error(format!("Expected 'end', got {:?}", self.current_token));
                 return None;
             }
 
@@ -303,18 +336,19 @@ impl Parser {
             self.next_token();
             let consequence = self.parse_expression(Precedence::Lowest)?;
 
-            let mut alternative = None;
-
-            if self.peek_token == Token::Else {
-                self.next_token();
-                self.next_token();
-                alternative = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            if self.peek_token != Token::Else {
+                self.report_error("Inline 'if' expression must have an 'else' branch. Use 'if ... do ... end' for optional conditions.".to_string());
+                return None;
             }
+
+            self.next_token();
+            self.next_token();
+            let alternative = self.parse_expression(Precedence::Lowest)?;
 
             Some(Expression::If {
                 condition: Box::new(condition),
                 consequence: Box::new(consequence),
-                alternative,
+                alternative: Some(Box::new(alternative)),
             })
         }
     }
@@ -365,7 +399,7 @@ impl Parser {
                     value: Box::new(value),
                 });
             } else {
-                self.errors.push("Invalid assignment target".to_string());
+                self.report_error("Invalid assignment target".to_string());
                 return None;
             }
         }
@@ -439,7 +473,7 @@ impl Parser {
             self.next_token();
             true
         } else {
-            self.errors.push(format!(
+            self.report_error(format!(
                 "Expected {:?}, got {:?}",
                 expected, self.peek_token
             ));
