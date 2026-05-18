@@ -5,23 +5,32 @@ use crate::object::Object;
 const STACK_SIZE: usize = 2048;
 const GLOBALS_SIZE: usize = 65536;
 
-pub struct VM {
-    constants: Vec<Object>,
-    instructions: Vec<u8>,
+pub struct Frame {
+    pub instructions: Vec<u8>,
+    pub constants: Vec<Object>,
+    pub ip: usize,
+    pub bp: usize,
+}
 
+pub struct VM {
+    frames: Vec<Frame>,
     stack: Vec<Object>,
     sp: usize,
-
     globals: Vec<Object>,
-
     pub last_popped_stack_elem: Option<Object>,
 }
 
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
-        Self {
-            constants: bytecode.constants,
+        let main_frame = Frame {
             instructions: bytecode.instructions,
+            constants: bytecode.constants,
+            ip: 0,
+            bp: 0,
+        };
+
+        Self {
+            frames: vec![main_frame],
             stack: vec![Object::Number(0.0); STACK_SIZE],
             sp: 0,
             globals: vec![Object::Number(0.0); GLOBALS_SIZE],
@@ -30,81 +39,139 @@ impl VM {
     }
 
     pub fn run(&mut self) -> Result<(), String> {
-        let mut ip = 0;
+        let mut frame = self.frames.pop().unwrap();
 
-        while ip < self.instructions.len() {
-            let op = Opcode::from(self.instructions[ip]);
-            ip += 1;
+        while frame.ip < frame.instructions.len() {
+            let op = Opcode::from(frame.instructions[frame.ip]);
+            frame.ip += 1;
 
             match op {
+                Opcode::OpConstant => {
+                    let const_index = ((frame.instructions[frame.ip] as usize) << 8)
+                        | (frame.instructions[frame.ip + 1] as usize);
+                    frame.ip += 2;
+                    self.push(frame.constants[const_index].clone())?;
+                }
                 Opcode::OpSetGlobal => {
-                    let global_index = ((self.instructions[ip] as usize) << 8)
-                        | (self.instructions[ip + 1] as usize);
-                    ip += 2;
-
+                    let global_index = ((frame.instructions[frame.ip] as usize) << 8)
+                        | (frame.instructions[frame.ip + 1] as usize);
+                    frame.ip += 2;
                     let val = self.pop();
                     self.globals[global_index] = val;
                 }
                 Opcode::OpGetGlobal => {
-                    let global_index = ((self.instructions[ip] as usize) << 8)
-                        | (self.instructions[ip + 1] as usize);
-                    ip += 2;
-
-                    let val = self.globals[global_index].clone();
+                    let global_index = ((frame.instructions[frame.ip] as usize) << 8)
+                        | (frame.instructions[frame.ip + 1] as usize);
+                    frame.ip += 2;
+                    self.push(self.globals[global_index].clone())?;
+                }
+                Opcode::OpSetLocal => {
+                    let local_idx = frame.instructions[frame.ip] as usize;
+                    frame.ip += 1;
+                    let val = self.pop();
+                    self.stack[frame.bp + local_idx] = val;
+                }
+                Opcode::OpGetLocal => {
+                    let local_idx = frame.instructions[frame.ip] as usize;
+                    frame.ip += 1;
+                    let val = self.stack[frame.bp + local_idx].clone();
                     self.push(val)?;
                 }
-                Opcode::OpConstant => {
-                    let const_index = ((self.instructions[ip] as usize) << 8)
-                        | (self.instructions[ip + 1] as usize);
-                    ip += 2;
+                Opcode::OpJump => {
+                    let pos = ((frame.instructions[frame.ip] as usize) << 8)
+                        | (frame.instructions[frame.ip + 1] as usize);
+                    frame.ip = pos;
+                }
+                Opcode::OpJumpNotTruthy => {
+                    let pos = ((frame.instructions[frame.ip] as usize) << 8)
+                        | (frame.instructions[frame.ip + 1] as usize);
+                    frame.ip += 2;
+                    let condition = self.pop();
+                    if !self.is_truthy(condition) {
+                        frame.ip = pos;
+                    }
+                }
+                Opcode::OpCall => {
+                    let num_args = frame.instructions[frame.ip] as usize;
+                    frame.ip += 1;
 
-                    let constant = self.constants[const_index].clone();
-                    self.push(constant)?;
+                    let func_obj_idx = self.sp - 1 - num_args;
+                    let func_obj = self.stack[func_obj_idx].clone();
+
+                    if let Object::CompiledFunction {
+                        instructions,
+                        constants,
+                        num_locals,
+                        num_parameters,
+                    } = func_obj
+                    {
+                        if num_parameters != num_args {
+                            return Err(format!(
+                                "Wrong number of arguments: want {}, got {}",
+                                num_parameters, num_args
+                            ));
+                        }
+
+                        self.frames.push(frame);
+
+                        let bp = self.sp - num_args;
+
+                        self.sp = bp + num_locals;
+
+                        frame = Frame {
+                            instructions,
+                            constants,
+                            ip: 0,
+                            bp,
+                        };
+                    } else {
+                        return Err("Calling non-function".to_string());
+                    }
+                }
+                Opcode::OpReturnValue => {
+                    let return_value = self.pop();
+
+                    self.sp = frame.bp - 1;
+
+                    self.push(return_value)?;
+                    frame = self.frames.pop().unwrap();
                 }
                 Opcode::OpAdd | Opcode::OpSub | Opcode::OpMul | Opcode::OpDiv => {
-                    self.execute_binary_operation(op)?;
+                    self.execute_binary_operation(op)?
                 }
                 Opcode::OpPop => {
-                    let popped = self.pop();
-                    self.last_popped_stack_elem = Some(popped);
+                    self.last_popped_stack_elem = Some(self.pop());
                 }
                 Opcode::OpTrue => self.push(Object::Boolean(true))?,
                 Opcode::OpFalse => self.push(Object::Boolean(false))?,
                 Opcode::OpEqual | Opcode::OpNotEqual => self.execute_comparison(op)?,
                 Opcode::OpMinus => self.execute_minus_operator()?,
                 Opcode::OpBang => self.execute_bang_operator()?,
-                Opcode::OpJump => {
-                    let pos = ((self.instructions[ip] as usize) << 8)
-                        | (self.instructions[ip + 1] as usize);
-                    ip = pos;
-                }
-                Opcode::OpJumpNotTruthy => {
-                    let pos = ((self.instructions[ip] as usize) << 8)
-                        | (self.instructions[ip + 1] as usize);
-                    ip += 2;
-
-                    let condition = self.pop();
-                    if !self.is_truthy(condition) {
-                        ip = pos;
-                    }
-                }
             }
         }
 
         Ok(())
     }
 
-    fn is_truthy(&self, obj: Object) -> bool {
-        match obj {
-            Object::Boolean(val) => val,
-            _ => true,
+    fn execute_binary_operation(&mut self, op: Opcode) -> Result<(), String> {
+        let right = self.pop();
+        let left = self.pop();
+        if let (Object::Number(l), Object::Number(r)) = (&left, &right) {
+            let result = match op {
+                Opcode::OpAdd => l + r,
+                Opcode::OpSub => l - r,
+                Opcode::OpMul => l * r,
+                Opcode::OpDiv => l / r,
+                _ => unreachable!(),
+            };
+            return self.push(Object::Number(result));
         }
+        Err("Unsupported types for binary operation".to_string())
     }
 
     fn execute_comparison(&mut self, op: Opcode) -> Result<(), String> {
         let right = self.pop();
         let left = self.pop();
-
         if let (Object::Number(l), Object::Number(r)) = (&left, &right) {
             let result = match op {
                 Opcode::OpEqual => l == r,
@@ -113,7 +180,6 @@ impl VM {
             };
             return self.push(Object::Boolean(result));
         }
-
         if let (Object::Boolean(l), Object::Boolean(r)) = (&left, &right) {
             let result = match op {
                 Opcode::OpEqual => l == r,
@@ -122,47 +188,30 @@ impl VM {
             };
             return self.push(Object::Boolean(result));
         }
-
         Err("Unsupported types for comparison".to_string())
     }
 
     fn execute_minus_operator(&mut self) -> Result<(), String> {
-        let operand = self.pop();
-        if let Object::Number(val) = operand {
+        if let Object::Number(val) = self.pop() {
             self.push(Object::Number(-val))
         } else {
-            Err(format!("Unsupported type for negation: {:?}", operand))
+            Err("Negation err".to_string())
         }
     }
 
     fn execute_bang_operator(&mut self) -> Result<(), String> {
-        let operand = self.pop();
-        let result = match operand {
+        let result = match self.pop() {
             Object::Boolean(val) => !val,
             _ => false,
         };
         self.push(Object::Boolean(result))
     }
 
-    fn execute_binary_operation(&mut self, op: Opcode) -> Result<(), String> {
-        let right = self.pop();
-        let left = self.pop();
-
-        match (left, right) {
-            (Object::Number(l), Object::Number(r)) => {
-                let result = match op {
-                    Opcode::OpAdd => l + r,
-                    Opcode::OpSub => l - r,
-                    Opcode::OpMul => l * r,
-                    Opcode::OpDiv => l / r,
-                    _ => unreachable!(),
-                };
-                self.push(Object::Number(result))?;
-            }
-            _ => return Err("Unsupported types for binary operation".to_string()),
+    fn is_truthy(&self, obj: Object) -> bool {
+        match obj {
+            Object::Boolean(val) => val,
+            _ => true,
         }
-
-        Ok(())
     }
 
     fn push(&mut self, obj: Object) -> Result<(), String> {

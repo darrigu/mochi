@@ -3,10 +3,23 @@ use crate::code::{Opcode, make};
 use crate::object::Object;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SymbolScope {
+    Global,
+    Local,
+}
+
+#[derive(Debug, Clone)]
+pub struct Symbol {
+    pub scope: SymbolScope,
+    pub index: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
-    store: HashMap<String, usize>,
-    num_definitions: usize,
+    pub store: HashMap<String, Symbol>,
+    pub num_definitions: usize,
+    pub outer: Option<Box<SymbolTable>>,
 }
 
 impl SymbolTable {
@@ -14,18 +27,40 @@ impl SymbolTable {
         Self {
             store: HashMap::new(),
             num_definitions: 0,
+            outer: None,
         }
     }
 
-    pub fn define(&mut self, name: String) -> usize {
-        let id = self.num_definitions;
-        self.store.insert(name, id);
-        self.num_definitions += 1;
-        id
+    pub fn new_enclosed(outer: SymbolTable) -> Self {
+        Self {
+            store: HashMap::new(),
+            num_definitions: 0,
+            outer: Some(Box::new(outer)),
+        }
     }
 
-    pub fn resolve(&self, name: &str) -> Option<usize> {
-        self.store.get(name).copied()
+    pub fn define(&mut self, name: String) -> Symbol {
+        let symbol = Symbol {
+            scope: if self.outer.is_none() {
+                SymbolScope::Global
+            } else {
+                SymbolScope::Local
+            },
+            index: self.num_definitions,
+        };
+        self.store.insert(name, symbol.clone());
+        self.num_definitions += 1;
+        symbol
+    }
+
+    pub fn resolve(&self, name: &str) -> Option<Symbol> {
+        if let Some(symbol) = self.store.get(name) {
+            Some(symbol.clone())
+        } else if let Some(outer) = &self.outer {
+            outer.resolve(name)
+        } else {
+            None
+        }
     }
 }
 
@@ -50,6 +85,14 @@ impl Compiler {
         }
     }
 
+    pub fn new_with_state(outer: SymbolTable) -> Self {
+        Self {
+            instructions: vec![],
+            constants: vec![],
+            symbol_table: SymbolTable::new_enclosed(outer),
+        }
+    }
+
     pub fn compile_program(&mut self, program: &Program) -> Result<(), String> {
         for stmt in &program.statements {
             self.compile_statement(stmt)?;
@@ -65,10 +108,18 @@ impl Compiler {
             }
             Statement::Let { name, value } => {
                 self.compile_expression(value)?;
-                let index = self.symbol_table.define(name.clone());
-                self.emit(Opcode::OpSetGlobal, &[index]);
+                let symbol = self.symbol_table.define(name.clone());
+
+                if symbol.scope == SymbolScope::Local {
+                    self.emit(Opcode::OpSetLocal, &[symbol.index]);
+                } else {
+                    self.emit(Opcode::OpSetGlobal, &[symbol.index]);
+                }
             }
-            _ => return Err(format!("Unimplemented statement: {:?}", stmt)),
+            Statement::Return(expr) => {
+                self.compile_expression(expr)?;
+                self.emit(Opcode::OpReturnValue, &[]);
+            }
         }
         Ok(())
     }
@@ -88,11 +139,48 @@ impl Compiler {
     fn compile_expression(&mut self, expr: &Expression) -> Result<(), String> {
         match expr {
             Expression::Identifier(name) => {
-                if let Some(index) = self.symbol_table.resolve(name) {
-                    self.emit(Opcode::OpGetGlobal, &[index]);
+                if let Some(symbol) = self.symbol_table.resolve(name) {
+                    if symbol.scope == SymbolScope::Local {
+                        self.emit(Opcode::OpGetLocal, &[symbol.index]);
+                    } else {
+                        self.emit(Opcode::OpGetGlobal, &[symbol.index]);
+                    }
                 } else {
                     return Err(format!("Undefined variable: {}", name));
                 }
+            }
+            Expression::Function { parameters, body } => {
+                let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
+
+                for param in parameters {
+                    fn_compiler.symbol_table.define(param.clone());
+                }
+
+                fn_compiler.compile_block(body)?;
+                fn_compiler.emit(Opcode::OpReturnValue, &[]);
+
+                let num_locals = fn_compiler.symbol_table.num_definitions;
+
+                let bytecode = fn_compiler.bytecode();
+                let fn_obj = Object::CompiledFunction {
+                    instructions: bytecode.instructions,
+                    constants: bytecode.constants,
+                    num_locals,
+                    num_parameters: parameters.len(),
+                };
+
+                let pos = self.add_constant(fn_obj);
+                self.emit(Opcode::OpConstant, &[pos]);
+            }
+            Expression::Call {
+                function,
+                arguments,
+            } => {
+                self.compile_expression(function)?;
+                for arg in arguments {
+                    self.compile_expression(arg)?;
+                }
+                self.emit(Opcode::OpCall, &[arguments.len()]);
             }
             Expression::Infix {
                 left,
@@ -187,15 +275,21 @@ impl Compiler {
                 }
                 Statement::Let { name, value } => {
                     self.compile_expression(value)?;
-                    let index = self.symbol_table.define(name.clone());
-                    self.emit(Opcode::OpSetGlobal, &[index]);
+                    let symbol = self.symbol_table.define(name.clone());
+
+                    if symbol.scope == SymbolScope::Local {
+                        self.emit(Opcode::OpSetLocal, &[symbol.index]);
+                    } else {
+                        self.emit(Opcode::OpSetGlobal, &[symbol.index]);
+                    }
 
                     if is_last {
                         self.emit(Opcode::OpFalse, &[]);
                     }
                 }
-                Statement::Return(_) => {
-                    return Err("Return not implemented in compiler yet!".to_string());
+                Statement::Return(expr) => {
+                    self.compile_expression(expr)?;
+                    self.emit(Opcode::OpReturnValue, &[]);
                 }
             }
         }

@@ -16,6 +16,10 @@ pub enum Opcode {
     OpGetGlobal,
     OpJumpNotTruthy,
     OpJump,
+    OpCall,
+    OpReturnValue,
+    OpGetLocal,
+    OpSetLocal,
 }
 
 impl From<u8> for Opcode {
@@ -37,6 +41,10 @@ impl From<u8> for Opcode {
             13 => Opcode::OpGetGlobal,
             14 => Opcode::OpJumpNotTruthy,
             15 => Opcode::OpJump,
+            16 => Opcode::OpCall,
+            17 => Opcode::OpReturnValue,
+            18 => Opcode::OpGetLocal,
+            19 => Opcode::OpSetLocal,
             _ => panic!("Unknown Opcode: {}", val),
         }
     }
@@ -54,18 +62,9 @@ pub fn make(op: Opcode, operands: &[usize]) -> Vec<u8> {
             instruction.extend_from_slice(&operand.to_be_bytes());
             instruction
         }
-        Opcode::OpAdd
-        | Opcode::OpSub
-        | Opcode::OpMul
-        | Opcode::OpDiv
-        | Opcode::OpPop
-        | Opcode::OpTrue
-        | Opcode::OpFalse
-        | Opcode::OpEqual
-        | Opcode::OpNotEqual
-        | Opcode::OpMinus
-        | Opcode::OpBang => {
-            vec![op as u8]
+        Opcode::OpCall | Opcode::OpGetLocal | Opcode::OpSetLocal => {
+            vec![op as u8, operands[0] as u8]
         }
+        _ => vec![op as u8],
     }
 }

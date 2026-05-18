@@ -6,6 +6,8 @@ mod object;
 mod parser;
 mod vm;
 
+mod tests;
+
 use compiler::Compiler;
 use lexer::Lexer;
 use parser::Parser;
@@ -13,15 +15,17 @@ use vm::VM;
 
 fn main() {
     let input = "
-        let x = 10
-        
-        let y = if x == 10 do
-            100
-        else
-            50
+        let math_magic = fn(x, y) do
+            if x == 0 do
+                return y
+            else
+                let z = 5
+                return x + y + z
+            end
         end
         
-        y
+        let result = math_magic(10, 5)
+        result
     ";
 
     println!("Compiling Mochi script:\n{}\n", input);
@@ -42,7 +46,6 @@ fn main() {
     }
 
     let bytecode = compiler.bytecode();
-
     let mut machine = VM::new(bytecode);
 
     if let Err(e) = machine.run() {
