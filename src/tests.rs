@@ -196,56 +196,44 @@ mod tests {
 
     #[test]
     fn test_functions_basic() {
-        let input = "
-            let identity = fn(a) do return a end
-            identity(5)
-        ";
-        test_script(input, Object::Number(5.0));
-
-        let input = "
-            let always_five = fn() do return 5 end
-            always_five()
-        ";
-        test_script(input, Object::Number(5.0));
-
-        let input = "
-            let add = fn(a, b) do return a + b end
-            add(3, 4)
-        ";
-        test_script(input, Object::Number(7.0));
-
-        let input = "
-            let add_three = fn(a, b, c) do return a + b + c end
-            add_three(10, 20, 30)
-        ";
-        test_script(input, Object::Number(60.0));
+        test_script(
+            "fn identity(a) do return a end identity(5)",
+            Object::Number(5.0),
+        );
+        test_script(
+            "fn always_five() do return 5 end always_five()",
+            Object::Number(5.0),
+        );
+        test_script(
+            "fn add(a, b) do return a + b end add(3, 4)",
+            Object::Number(7.0),
+        );
+        test_script(
+            "fn add_three(a, b, c) do return a + b + c end add_three(10, 20, 30)",
+            Object::Number(60.0),
+        );
     }
 
     #[test]
     fn test_functions_return_values() {
-        let input = "
-            let double = fn(x) do return x * 2 end
-            double(5)
-        ";
-        test_script(input, Object::Number(10.0));
-
-        let input = "
-            let is_positive = fn(x) do return x > 0 end
-            is_positive(5)
-        ";
-        test_script(input, Object::Boolean(true));
-
-        let input = "
-            let calc = fn(x) do return x + x * x end
-            calc(3)
-        ";
-        test_script(input, Object::Number(12.0));
+        test_script(
+            "fn double(x) do return x * 2 end double(5)",
+            Object::Number(10.0),
+        );
+        test_script(
+            "fn is_positive(x) do return x > 0 end is_positive(5)",
+            Object::Boolean(true),
+        );
+        test_script(
+            "fn calc(x) do return x + x * x end calc(3)",
+            Object::Number(12.0),
+        );
     }
 
     #[test]
     fn test_functions_local_state() {
         let input = "
-            let complex_math = fn(x, y) do
+            fn complex_math(x, y) do
                 let z = 10
                 let multiplier = 2
                 return (x + y + z) * multiplier
@@ -255,7 +243,7 @@ mod tests {
         test_script(input, Object::Number(40.0));
 
         let input = "
-            let calculate = fn(a, b) do
+            fn calculate(a, b) do
                 let sum = a + b
                 let product = a * b
                 return sum + product
@@ -269,7 +257,7 @@ mod tests {
     fn test_functions_global_access() {
         let input = "
             let global_val = 100
-            let add_to_global = fn(x) do return x + global_val end
+            fn add_to_global(x) do return x + global_val end
             add_to_global(50)
         ";
         test_script(input, Object::Number(150.0));
@@ -277,7 +265,7 @@ mod tests {
         let input = "
             let x = 10
             let y = 20
-            let add = fn() do return x + y end
+            fn add() do return x + y end
             add()
         ";
         test_script(input, Object::Number(30.0));
@@ -286,7 +274,7 @@ mod tests {
     #[test]
     fn test_functions_recursion() {
         let input = "
-            let factorial = fn(n) do
+            fn factorial(n) do
                 if n == 0 do
                     return 1
                 else
@@ -298,7 +286,7 @@ mod tests {
         test_script(input, Object::Number(120.0));
 
         let input = "
-            let fib = fn(n) do
+            fn fib(n) do
                 if n == 0 do return 0
                 else if n == 1 do return 1
                 else return fib(n - 1) + fib(n - 2)
@@ -313,7 +301,7 @@ mod tests {
     #[test]
     fn test_functions_higher_order() {
         let input = "
-            let make_adder = fn(x) do
+            fn make_adder(x) do
                 return fn(y) do return x + y end
             end
             let add5 = make_adder(5)
@@ -322,8 +310,8 @@ mod tests {
         test_script(input, Object::Number(15.0));
 
         let input = "
-            let apply_twice = fn(f, x) do return f(f(x)) end
-            let double = fn(x) do return x * 2 end
+            fn apply_twice(f, x) do return f(f(x)) end
+            fn double(x) do return x * 2 end
             apply_twice(double, 5)
         ";
         test_script(input, Object::Number(20.0));
@@ -345,7 +333,7 @@ mod tests {
     fn test_closures() {
         let input = "
             let x = 10
-            let get_x = fn() do return x end
+            fn get_x() do return x end
             get_x()
         ";
         test_script(input, Object::Number(10.0));
@@ -354,19 +342,19 @@ mod tests {
     #[test]
     fn test_complex_programs() {
         let input = "
-            let add = fn(a, b) do return a + b end
-            let multiply = fn(a, b) do return a * b end
+            fn add(a, b) do return a + b end
+            fn multiply(a, b) do return a * b end
             let result = add(multiply(2, 3), multiply(4, 5))
             result
         ";
         test_script(input, Object::Number(26.0));
 
         let input = "
-            let compose = fn(f, g) do
+            fn compose(f, g) do
                 return fn(x) do return f(g(x)) end
             end
-            let add1 = fn(x) do return x + 1 end
-            let mul2 = fn(x) do return x * 2 end
+            fn add1(x) do return x + 1 end
+            fn mul2(x) do return x * 2 end
             let add1_then_mul2 = compose(mul2, add1)
             add1_then_mul2(5)
         ";
@@ -413,27 +401,27 @@ mod tests {
     #[test]
     fn test_mixed_syntax() {
         let input = "
-            let add = fn(a, b) a + b
-            let result = fn(x) do return add(x, x) end
+            fn add(a, b) a + b
+            fn result(x) do return add(x, x) end
             result(5)
         ";
         test_script(input, Object::Number(10.0));
 
         let input = "
-            let add = fn(a, b) do return a + b end
-            let result = fn(x) add(x, x)
+            fn add(a, b) do return a + b end
+            fn result(x) add(x, x)
             result(5)
         ";
         test_script(input, Object::Number(10.0));
 
         let input = "
-            let check = fn(x) if x > 0 do 1 else -1 end
+            fn check(x) if x > 0 do 1 else -1 end
             check(5)
         ";
         test_script(input, Object::Number(1.0));
 
         let input = "
-            let check = fn(x) do if x > 0 1 else -1 end
+            fn check(x) do if x > 0 1 else -1 end
             check(5)
         ";
         test_script(input, Object::Number(1.0));
@@ -449,7 +437,7 @@ mod tests {
     #[should_panic(expected = "Wrong number of arguments")]
     fn test_wrong_number_of_arguments() {
         let input = "
-            let add = fn(a, b) do return a + b end
+            fn add(a, b) do return a + b end
             add(1, 2, 3)
         ";
         test_script(input, Object::Number(0.0));

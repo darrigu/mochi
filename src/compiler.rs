@@ -166,7 +166,6 @@ impl Compiler {
                 let num_free = free_symbols.len();
 
                 let bytecode = fn_compiler.bytecode();
-
                 let fn_obj = Object::CompiledFunction {
                     instructions: bytecode.instructions,
                     constants: bytecode.constants,

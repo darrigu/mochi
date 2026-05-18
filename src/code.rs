@@ -47,14 +47,19 @@ pub fn make(op: Opcode, operands: &[usize]) -> Vec<u8> {
             instruction.extend_from_slice(&operand.to_be_bytes());
             instruction
         }
-        Opcode::OpCall | Opcode::OpGetLocal | Opcode::OpSetLocal | Opcode::OpGetFree => {
-            vec![op as u8, operands[0] as u8]
-        }
-        Opcode::OpClosure => {
+        Opcode::OpCall
+        | Opcode::OpGetLocal
+        | Opcode::OpSetLocal
+        | Opcode::OpGetFree
+        | Opcode::OpClosure => {
             let mut instruction = vec![op as u8];
             let operand = operands[0] as u16;
-            instruction.extend_from_slice(&operand.to_be_bytes());
-            instruction.push(operands[1] as u8);
+            if op == Opcode::OpClosure {
+                instruction.extend_from_slice(&operand.to_be_bytes());
+                instruction.push(operands[1] as u8);
+            } else {
+                instruction.push(operands[0] as u8);
+            }
             instruction
         }
         _ => vec![op as u8],

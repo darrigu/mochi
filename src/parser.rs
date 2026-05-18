@@ -142,6 +142,12 @@ impl Parser {
     }
 
     fn parse_function_expression(&mut self) -> Option<Expression> {
+        let mut name = None;
+        if let Token::Ident(n) = &self.peek_token.clone() {
+            self.next_token();
+            name = Some(n.clone());
+        }
+
         if !self.expect_peek(Token::LParen) {
             return None;
         }
@@ -166,7 +172,15 @@ impl Parser {
             vec![expr]
         };
 
-        Some(Expression::Function { parameters, body })
+        let func = Expression::Function { parameters, body };
+        if let Some(n) = name {
+            Some(Expression::Let {
+                name: n,
+                value: Box::new(func),
+            })
+        } else {
+            Some(func)
+        }
     }
 
     fn parse_function_parameters(&mut self) -> Option<Vec<String>> {

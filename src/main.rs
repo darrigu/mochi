@@ -15,8 +15,8 @@ use vm::VM;
 
 fn main() {
     let input = "
-        let math_magic = fn(x, y) do
-           let test = fn(z) do
+        fn math_magic(x, y) do
+           fn test(z) do
               return x + y + z
            end
            return test(20)
