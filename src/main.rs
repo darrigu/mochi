@@ -17,14 +17,12 @@ fn main() {
     // FIXME
     let input = "
         fn math_magic(x, y) do
-           fn test(z) do
-              return x + y + z
-           end
-           return test(20)
+            fn test(z) do
+                return x + y + z
+            end
+            return test(20)
         end
 
-        math_magic = fn(x, y) x + y
-        
         let result = math_magic(10, 5)
         result
     ";

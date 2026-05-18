@@ -38,6 +38,10 @@ pub enum Expression {
         name: String,
         value: Box<Expression>,
     },
+    Const {
+        name: String,
+        value: Box<Expression>,
+    },
     Assign {
         name: String,
         value: Box<Expression>,

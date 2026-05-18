@@ -14,6 +14,7 @@ pub enum SymbolScope {
 pub struct Symbol {
     pub scope: SymbolScope,
     pub index: usize,
+    pub is_const: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +44,7 @@ impl SymbolTable {
         }
     }
 
-    pub fn define(&mut self, name: String) -> Symbol {
+    pub fn define(&mut self, name: String, is_const: bool) -> Symbol {
         let symbol = Symbol {
             scope: if self.outer.is_none() {
                 SymbolScope::Global
@@ -51,6 +52,7 @@ impl SymbolTable {
                 SymbolScope::Local
             },
             index: self.num_definitions,
+            is_const,
         };
         self.store.insert(name, symbol.clone());
         self.num_definitions += 1;
@@ -63,6 +65,7 @@ impl SymbolTable {
                 return Symbol {
                     scope: SymbolScope::Free,
                     index: i,
+                    is_const: original.is_const,
                 };
             }
         }
@@ -71,6 +74,7 @@ impl SymbolTable {
         Symbol {
             scope: SymbolScope::Free,
             index: idx,
+            is_const: original.is_const,
         }
     }
 
@@ -153,9 +157,12 @@ impl Compiler {
                 };
             }
             Expression::Assign { name, value } => {
-                self.compile_expression(value)?;
-
                 let symbol = self.resolve_name(name)?;
+                if symbol.is_const {
+                    return Err(format!("Cannot reassign constant '{}'", name));
+                }
+
+                self.compile_expression(value)?;
                 match symbol.scope {
                     SymbolScope::Local => self.emit(Opcode::OpSetLocal, &[symbol.index]),
                     SymbolScope::Global => self.emit(Opcode::OpSetGlobal, &[symbol.index]),
@@ -166,7 +173,7 @@ impl Compiler {
                 let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
 
                 for param in parameters {
-                    fn_compiler.symbol_table.define(param.clone());
+                    fn_compiler.symbol_table.define(param.clone(), false);
                 }
                 fn_compiler.compile_block(body)?;
                 fn_compiler.emit(Opcode::OpReturnValue, &[]);
@@ -267,7 +274,17 @@ impl Compiler {
                 }
             }
             Expression::Let { name, value } => {
-                let symbol = self.symbol_table.define(name.clone());
+                let symbol = self.symbol_table.define(name.clone(), false);
+                self.compile_expression(value)?;
+
+                if symbol.scope == SymbolScope::Local {
+                    self.emit(Opcode::OpSetLocal, &[symbol.index]);
+                } else {
+                    self.emit(Opcode::OpSetGlobal, &[symbol.index]);
+                }
+            }
+            Expression::Const { name, value } => {
+                let symbol = self.symbol_table.define(name.clone(), true);
                 self.compile_expression(value)?;
 
                 if symbol.scope == SymbolScope::Local {

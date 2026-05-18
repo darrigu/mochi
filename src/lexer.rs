@@ -2,6 +2,7 @@
 pub enum Token {
     Fn,
     Let,
+    Const,
     If,
     Else,
     End,
@@ -149,6 +150,7 @@ impl Lexer {
         match ident {
             "fn" | "def" => Token::Fn,
             "let" => Token::Let,
+            "const" => Token::Const,
             "if" => Token::If,
             "else" => Token::Else,
             "end" => Token::End,

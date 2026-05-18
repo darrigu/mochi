@@ -184,6 +184,27 @@ mod tests {
     }
 
     #[test]
+    fn test_constants() {
+        test_script("const a = 5 a", Object::Number(5.0));
+        test_script("const a = 10 let b = a * 2 b", Object::Number(20.0));
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot reassign constant")]
+    fn test_reassign_const_fails() {
+        test_script("const a = 10 a = 20", Object::Number(0.0));
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot reassign constant")]
+    fn test_reassign_named_function_fails() {
+        test_script(
+            "fn math_magic() do return 5 end math_magic = 10",
+            Object::Number(0.0),
+        );
+    }
+
+    #[test]
     fn test_if_else_expressions() {
         test_script("if true do 10 end", Object::Number(10.0));
         test_script("if false do 10 end", Object::Boolean(false));

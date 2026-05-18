@@ -50,6 +50,7 @@ impl Parser {
             Token::Fn => self.parse_function_expression(),
             Token::Do => self.parse_block_expression(),
             Token::Let => self.parse_let_expression(),
+            Token::Const => self.parse_const_expression(),
             Token::Return => self.parse_return_expression(),
             _ => {
                 self.errors.push(format!(
@@ -90,6 +91,29 @@ impl Parser {
 
         let value = self.parse_expression(Precedence::Lowest)?;
         Some(Expression::Let {
+            name,
+            value: Box::new(value),
+        })
+    }
+
+    fn parse_const_expression(&mut self) -> Option<Expression> {
+        self.next_token();
+        let name = match &self.current_token {
+            Token::Ident(name) => name.clone(),
+            _ => {
+                self.errors
+                    .push(format!("Expected identifier, got {:?}", self.current_token));
+                return None;
+            }
+        };
+
+        if !self.expect_peek(Token::Assign) {
+            return None;
+        }
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+        Some(Expression::Const {
             name,
             value: Box::new(value),
         })
@@ -175,7 +199,7 @@ impl Parser {
 
         let func = Expression::Function { parameters, body };
         if let Some(n) = name {
-            Some(Expression::Let {
+            Some(Expression::Const {
                 name: n,
                 value: Box::new(func),
             })
