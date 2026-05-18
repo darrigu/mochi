@@ -1,14 +1,8 @@
 #[derive(Debug, Clone, PartialEq)]
-pub enum Statement {
-    Let { name: String, value: Expression },
-    Return(Expression),
-    Expression(Expression),
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Identifier(String),
     Number(f64),
+    #[allow(dead_code)]
     StringLiteral(String),
     Boolean(bool),
 
@@ -16,7 +10,6 @@ pub enum Expression {
         operator: String,
         right: Box<Expression>,
     },
-
     Infix {
         left: Box<Expression>,
         operator: String,
@@ -25,22 +18,28 @@ pub enum Expression {
 
     If {
         condition: Box<Expression>,
-        consequence: Vec<Statement>,
-        alternative: Option<Vec<Statement>>,
+        consequence: Box<Expression>,
+        alternative: Option<Box<Expression>>,
     },
 
     Function {
         parameters: Vec<String>,
-        body: Vec<Statement>,
+        body: Vec<Expression>,
     },
-
     Call {
         function: Box<Expression>,
         arguments: Vec<Expression>,
     },
+    Block(Vec<Expression>),
+
+    Let {
+        name: String,
+        value: Box<Expression>,
+    },
+    Return(Box<Expression>),
 }
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub expressions: Vec<Expression>,
 }

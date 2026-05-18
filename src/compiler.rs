@@ -1,4 +1,4 @@
-use crate::ast::{Expression, Program, Statement};
+use crate::ast::{Expression, Program};
 use crate::code::{Opcode, make};
 use crate::object::Object;
 use std::collections::HashMap;
@@ -94,32 +94,8 @@ impl Compiler {
     }
 
     pub fn compile_program(&mut self, program: &Program) -> Result<(), String> {
-        for stmt in &program.statements {
-            self.compile_statement(stmt)?;
-        }
-        Ok(())
-    }
-
-    fn compile_statement(&mut self, stmt: &Statement) -> Result<(), String> {
-        match stmt {
-            Statement::Expression(expr) => {
-                self.compile_expression(expr)?;
-                self.emit(Opcode::OpPop, &[]);
-            }
-            Statement::Let { name, value } => {
-                self.compile_expression(value)?;
-                let symbol = self.symbol_table.define(name.clone());
-
-                if symbol.scope == SymbolScope::Local {
-                    self.emit(Opcode::OpSetLocal, &[symbol.index]);
-                } else {
-                    self.emit(Opcode::OpSetGlobal, &[symbol.index]);
-                }
-            }
-            Statement::Return(expr) => {
-                self.compile_expression(expr)?;
-                self.emit(Opcode::OpReturnValue, &[]);
-            }
+        for expr in program.expressions.iter() {
+            self.compile_expression(expr)?;
         }
         Ok(())
     }
@@ -197,6 +173,8 @@ impl Compiler {
                     "/" => self.emit(Opcode::OpDiv, &[]),
                     "==" => self.emit(Opcode::OpEqual, &[]),
                     "!=" => self.emit(Opcode::OpNotEqual, &[]),
+                    ">" => self.emit(Opcode::OpGreater, &[]),
+                    "<" => self.emit(Opcode::OpLess, &[]),
                     _ => return Err(format!("Unknown operator: {}", operator)),
                 };
             }
@@ -220,6 +198,9 @@ impl Compiler {
                     self.emit(Opcode::OpFalse, &[]);
                 }
             }
+            Expression::Block(exprs) => {
+                self.compile_block(exprs)?;
+            }
             Expression::If {
                 condition,
                 consequence,
@@ -228,7 +209,7 @@ impl Compiler {
                 self.compile_expression(condition)?;
                 let jump_not_truthy_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
 
-                self.compile_block(consequence)?;
+                self.compile_expression(consequence)?;
 
                 if let Some(alt) = alternative {
                     let jump_pos = self.emit(Opcode::OpJump, &[9999]);
@@ -236,7 +217,7 @@ impl Compiler {
                     let alternative_pos = self.instructions.len();
                     self.change_operand(jump_not_truthy_pos, alternative_pos);
 
-                    self.compile_block(alt)?;
+                    self.compile_expression(alt)?;
 
                     let end_pos = self.instructions.len();
                     self.change_operand(jump_pos, end_pos);
@@ -252,28 +233,37 @@ impl Compiler {
                     self.change_operand(jump_pos, end_pos);
                 }
             }
-            _ => return Err(format!("Unimplemented expression: {:?}", expr)),
-        }
-        Ok(())
-    }
+            Expression::Let { name, value } => {
+                if let Expression::Function { parameters, body } = value.as_ref() {
+                    let symbol = self.symbol_table.define(name.clone());
 
-    fn compile_block(&mut self, statements: &[Statement]) -> Result<(), String> {
-        if statements.is_empty() {
-            self.emit(Opcode::OpFalse, &[]);
-            return Ok(());
-        }
+                    let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
 
-        for (i, stmt) in statements.iter().enumerate() {
-            let is_last = i == statements.len() - 1;
-
-            match stmt {
-                Statement::Expression(expr) => {
-                    self.compile_expression(expr)?;
-                    if !is_last {
-                        self.emit(Opcode::OpPop, &[]);
+                    for param in parameters {
+                        fn_compiler.symbol_table.define(param.clone());
                     }
-                }
-                Statement::Let { name, value } => {
+
+                    fn_compiler.compile_block(body)?;
+                    fn_compiler.emit(Opcode::OpReturnValue, &[]);
+
+                    let num_locals = fn_compiler.symbol_table.num_definitions;
+                    let bytecode = fn_compiler.bytecode();
+                    let fn_obj = Object::CompiledFunction {
+                        instructions: bytecode.instructions,
+                        constants: bytecode.constants,
+                        num_locals,
+                        num_parameters: parameters.len(),
+                    };
+
+                    let pos = self.add_constant(fn_obj);
+                    self.emit(Opcode::OpConstant, &[pos]);
+
+                    if symbol.scope == SymbolScope::Local {
+                        self.emit(Opcode::OpSetLocal, &[symbol.index]);
+                    } else {
+                        self.emit(Opcode::OpSetGlobal, &[symbol.index]);
+                    }
+                } else {
                     self.compile_expression(value)?;
                     let symbol = self.symbol_table.define(name.clone());
 
@@ -282,16 +272,25 @@ impl Compiler {
                     } else {
                         self.emit(Opcode::OpSetGlobal, &[symbol.index]);
                     }
-
-                    if is_last {
-                        self.emit(Opcode::OpFalse, &[]);
-                    }
-                }
-                Statement::Return(expr) => {
-                    self.compile_expression(expr)?;
-                    self.emit(Opcode::OpReturnValue, &[]);
                 }
             }
+            Expression::Return(expr) => {
+                self.compile_expression(expr)?;
+                self.emit(Opcode::OpReturnValue, &[]);
+            }
+            _ => return Err(format!("Unimplemented expression: {:?}", expr)),
+        }
+        Ok(())
+    }
+
+    fn compile_block(&mut self, expressions: &[Expression]) -> Result<(), String> {
+        if expressions.is_empty() {
+            self.emit(Opcode::OpFalse, &[]);
+            return Ok(());
+        }
+
+        for expr in expressions.iter() {
+            self.compile_expression(expr)?;
         }
         Ok(())
     }

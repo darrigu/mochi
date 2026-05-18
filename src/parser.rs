@@ -1,4 +1,4 @@
-use crate::ast::{Expression, Program, Statement};
+use crate::ast::{Expression, Program};
 use crate::lexer::{Lexer, Token};
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
@@ -37,63 +37,6 @@ impl Parser {
         self.peek_token = self.lexer.next_token();
     }
 
-    pub fn parse_program(&mut self) -> Program {
-        let mut program = Program { statements: vec![] };
-
-        while self.current_token != Token::EOF {
-            if let Some(stmt) = self.parse_statement() {
-                program.statements.push(stmt);
-            }
-            self.next_token();
-        }
-
-        program
-    }
-
-    fn parse_statement(&mut self) -> Option<Statement> {
-        match self.current_token {
-            Token::Let => self.parse_let_statement(),
-            Token::Return => self.parse_return_statement(),
-            _ => self.parse_expression_statement(),
-        }
-    }
-
-    fn parse_let_statement(&mut self) -> Option<Statement> {
-        self.next_token();
-
-        let name = match &self.current_token {
-            Token::Ident(name) => name.clone(),
-            _ => {
-                self.errors
-                    .push(format!("Expected identifier, got {:?}", self.current_token));
-                return None;
-            }
-        };
-
-        if !self.expect_peek(Token::Assign) {
-            return None;
-        }
-
-        self.next_token();
-
-        let value = self.parse_expression(Precedence::Lowest)?;
-
-        Some(Statement::Let { name, value })
-    }
-
-    fn parse_return_statement(&mut self) -> Option<Statement> {
-        self.next_token();
-
-        let return_val = self.parse_expression(Precedence::Lowest)?;
-
-        Some(Statement::Return(return_val))
-    }
-
-    fn parse_expression_statement(&mut self) -> Option<Statement> {
-        let expr = self.parse_expression(Precedence::Lowest)?;
-        Some(Statement::Expression(expr))
-    }
-
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let mut left_expr = match &self.current_token {
             Token::Ident(name) => Some(Expression::Identifier(name.clone())),
@@ -104,6 +47,9 @@ impl Parser {
             Token::LParen => self.parse_grouped_expression(),
             Token::If => self.parse_if_expression(),
             Token::Fn => self.parse_function_expression(),
+            Token::Do => self.parse_block_expression(),
+            Token::Let => self.parse_let_expression(),
+            Token::Return => self.parse_return_expression(),
             _ => {
                 self.errors.push(format!(
                     "No prefix parse function for {:?}",
@@ -125,6 +71,76 @@ impl Parser {
         Some(left_expr)
     }
 
+    fn parse_let_expression(&mut self) -> Option<Expression> {
+        self.next_token();
+        let name = match &self.current_token {
+            Token::Ident(name) => name.clone(),
+            _ => {
+                self.errors
+                    .push(format!("Expected identifier, got {:?}", self.current_token));
+                return None;
+            }
+        };
+
+        if !self.expect_peek(Token::Assign) {
+            return None;
+        }
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+        Some(Expression::Let {
+            name,
+            value: Box::new(value),
+        })
+    }
+
+    fn parse_return_expression(&mut self) -> Option<Expression> {
+        self.next_token();
+        let value = self.parse_expression(Precedence::Lowest)?;
+        Some(Expression::Return(Box::new(value)))
+    }
+
+    pub fn parse_program(&mut self) -> Program {
+        let mut program = Program {
+            expressions: vec![],
+        };
+        while self.current_token != Token::EOF {
+            if let Some(expr) = self.parse_expression(Precedence::Lowest) {
+                program.expressions.push(expr);
+            }
+            self.next_token();
+        }
+        program
+    }
+
+    fn parse_block_expressions(&mut self) -> Vec<Expression> {
+        let mut expressions = vec![];
+        while self.current_token != Token::End
+            && self.current_token != Token::Else
+            && self.current_token != Token::EOF
+        {
+            if let Some(expr) = self.parse_expression(Precedence::Lowest) {
+                expressions.push(expr);
+            }
+            self.next_token();
+        }
+        expressions
+    }
+
+    fn parse_block_expression(&mut self) -> Option<Expression> {
+        self.next_token();
+
+        let exprs = self.parse_block_expressions();
+
+        if self.current_token != Token::End {
+            self.errors
+                .push(format!("Expected 'end', got {:?}", self.current_token));
+            return None;
+        }
+
+        Some(Expression::Block(exprs))
+    }
+
     fn parse_function_expression(&mut self) -> Option<Expression> {
         if !self.expect_peek(Token::LParen) {
             return None;
@@ -132,18 +148,23 @@ impl Parser {
 
         let parameters = self.parse_function_parameters()?;
 
-        if !self.expect_peek(Token::Do) {
-            return None;
-        }
+        let body = if self.peek_token == Token::Do {
+            self.next_token();
+            self.next_token();
+            let exprs = self.parse_block_expressions();
 
-        self.next_token();
-        let body = self.parse_block_statements();
+            if self.current_token != Token::End {
+                self.errors
+                    .push(format!("Expected 'end', got {:?}", self.current_token));
+                return None;
+            }
 
-        if self.current_token != Token::End {
-            self.errors
-                .push(format!("Expected 'end', got {:?}", self.current_token));
-            return None;
-        }
+            exprs
+        } else {
+            self.next_token();
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            vec![expr]
+        };
 
         Some(Expression::Function { parameters, body })
     }
@@ -211,51 +232,52 @@ impl Parser {
 
     fn parse_if_expression(&mut self) -> Option<Expression> {
         self.next_token();
-
         let condition = self.parse_expression(Precedence::Lowest)?;
 
-        if !self.expect_peek(Token::Do) {
-            return None;
-        }
-
-        self.next_token();
-
-        let consequence = self.parse_block_statements();
-
-        let mut alternative = None;
-
-        if self.current_token == Token::Else {
+        if self.peek_token == Token::Do {
             self.next_token();
-            alternative = Some(self.parse_block_statements());
-        }
+            self.next_token();
 
-        if self.current_token != Token::End {
-            self.errors
-                .push(format!("Expected 'end', got {:?}", self.current_token));
-            return None;
-        }
+            let consequence_exprs = self.parse_block_expressions();
+            let consequence = Expression::Block(consequence_exprs);
 
-        Some(Expression::If {
-            condition: Box::new(condition),
-            consequence,
-            alternative,
-        })
-    }
+            let mut alternative = None;
 
-    fn parse_block_statements(&mut self) -> Vec<Statement> {
-        let mut statements = vec![];
-
-        while self.current_token != Token::End
-            && self.current_token != Token::Else
-            && self.current_token != Token::EOF
-        {
-            if let Some(stmt) = self.parse_statement() {
-                statements.push(stmt);
+            if self.current_token == Token::Else {
+                self.next_token();
+                let alt_exprs = self.parse_block_expressions();
+                alternative = Some(Box::new(Expression::Block(alt_exprs)));
             }
-            self.next_token();
-        }
 
-        statements
+            if self.current_token != Token::End {
+                self.errors
+                    .push(format!("Expected 'end', got {:?}", self.current_token));
+                return None;
+            }
+
+            Some(Expression::If {
+                condition: Box::new(condition),
+                consequence: Box::new(consequence),
+                alternative,
+            })
+        } else {
+            self.next_token();
+            let consequence = self.parse_expression(Precedence::Lowest)?;
+
+            let mut alternative = None;
+
+            if self.peek_token == Token::Else {
+                self.next_token();
+                self.next_token();
+                alternative = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            }
+
+            Some(Expression::If {
+                condition: Box::new(condition),
+                consequence: Box::new(consequence),
+                alternative,
+            })
+        }
     }
 
     fn parse_grouped_expression(&mut self) -> Option<Expression> {
@@ -300,6 +322,8 @@ impl Parser {
             Token::Slash => "/",
             Token::Eq => "==",
             Token::NotEq => "!=",
+            Token::Greater => ">",
+            Token::Less => "<",
             _ => return None,
         }
         .to_string();
@@ -324,6 +348,8 @@ impl Parser {
                 | Token::Slash
                 | Token::Eq
                 | Token::NotEq
+                | Token::Less
+                | Token::Greater
                 | Token::LParen
         )
     }
@@ -331,6 +357,7 @@ impl Parser {
     fn current_precedence(&self) -> Precedence {
         match self.current_token {
             Token::Eq | Token::NotEq => Precedence::Equals,
+            Token::Greater | Token::Less => Precedence::LessGreater,
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Star | Token::Slash => Precedence::Product,
             Token::LParen => Precedence::Call,
@@ -341,6 +368,7 @@ impl Parser {
     fn peek_precedence(&self) -> Precedence {
         match self.peek_token {
             Token::Eq | Token::NotEq => Precedence::Equals,
+            Token::Greater | Token::Less => Precedence::LessGreater,
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Star | Token::Slash => Precedence::Product,
             Token::LParen => Precedence::Call,

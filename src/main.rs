@@ -14,14 +14,13 @@ use parser::Parser;
 use vm::VM;
 
 fn main() {
+    // FIXME
     let input = "
         let math_magic = fn(x, y) do
-            if x == 0 do
-                return y
-            else
-                let z = 5
-                return x + y + z
-            end
+           let test = fn(z) do
+              return x + y + z
+           end
+           return test(20)
         end
         
         let result = math_magic(10, 5)

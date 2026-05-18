@@ -14,8 +14,8 @@ pub struct Frame {
 
 pub struct VM {
     frames: Vec<Frame>,
-    stack: Vec<Object>,
-    sp: usize,
+    pub stack: Vec<Object>,
+    pub sp: usize,
     globals: Vec<Object>,
     pub last_popped_stack_elem: Option<Object>,
 }
@@ -144,10 +144,18 @@ impl VM {
                 }
                 Opcode::OpTrue => self.push(Object::Boolean(true))?,
                 Opcode::OpFalse => self.push(Object::Boolean(false))?,
-                Opcode::OpEqual | Opcode::OpNotEqual => self.execute_comparison(op)?,
+                Opcode::OpEqual | Opcode::OpNotEqual | Opcode::OpGreater | Opcode::OpLess => {
+                    self.execute_comparison(op)?
+                }
                 Opcode::OpMinus => self.execute_minus_operator()?,
                 Opcode::OpBang => self.execute_bang_operator()?,
             }
+        }
+
+        if self.sp > 0 {
+            self.last_popped_stack_elem = Some(self.pop());
+        } else {
+            self.last_popped_stack_elem = None;
         }
 
         Ok(())
@@ -176,6 +184,8 @@ impl VM {
             let result = match op {
                 Opcode::OpEqual => l == r,
                 Opcode::OpNotEqual => l != r,
+                Opcode::OpGreater => l > r,
+                Opcode::OpLess => l < r,
                 _ => unreachable!(),
             };
             return self.push(Object::Boolean(result));

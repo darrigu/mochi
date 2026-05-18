@@ -12,6 +12,7 @@ pub enum Token {
 
     Ident(String),
     Number(f64),
+    #[allow(dead_code)]
     StringLiteral(String),
 
     Plus,
@@ -21,6 +22,8 @@ pub enum Token {
     Assign,
     Eq,
     NotEq,
+    Greater,
+    Less,
     Bang,
 
     LParen,
@@ -84,6 +87,8 @@ impl Lexer {
                     Token::Assign
                 }
             }
+            '>' => Token::Greater,
+            '<' => Token::Less,
             '!' => {
                 if self.peek_char() == '=' {
                     self.read_char();
