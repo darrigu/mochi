@@ -22,33 +22,14 @@ pub enum Opcode {
     OpReturnValue,
     OpGetLocal,
     OpSetLocal,
+    OpGetFree,
+    OpClosure,
 }
 
 impl From<u8> for Opcode {
     fn from(val: u8) -> Self {
         match val {
-            0 => Opcode::OpConstant,
-            1 => Opcode::OpAdd,
-            2 => Opcode::OpSub,
-            3 => Opcode::OpMul,
-            4 => Opcode::OpDiv,
-            5 => Opcode::OpPop,
-            6 => Opcode::OpTrue,
-            7 => Opcode::OpFalse,
-            8 => Opcode::OpEqual,
-            9 => Opcode::OpNotEqual,
-            10 => Opcode::OpGreater,
-            11 => Opcode::OpLess,
-            12 => Opcode::OpMinus,
-            13 => Opcode::OpBang,
-            14 => Opcode::OpSetGlobal,
-            15 => Opcode::OpGetGlobal,
-            16 => Opcode::OpJumpNotTruthy,
-            17 => Opcode::OpJump,
-            18 => Opcode::OpCall,
-            19 => Opcode::OpReturnValue,
-            20 => Opcode::OpGetLocal,
-            21 => Opcode::OpSetLocal,
+            0..=23 => unsafe { std::mem::transmute(val) },
             _ => panic!("Unknown Opcode: {}", val),
         }
     }
@@ -66,8 +47,15 @@ pub fn make(op: Opcode, operands: &[usize]) -> Vec<u8> {
             instruction.extend_from_slice(&operand.to_be_bytes());
             instruction
         }
-        Opcode::OpCall | Opcode::OpGetLocal | Opcode::OpSetLocal => {
+        Opcode::OpCall | Opcode::OpGetLocal | Opcode::OpSetLocal | Opcode::OpGetFree => {
             vec![op as u8, operands[0] as u8]
+        }
+        Opcode::OpClosure => {
+            let mut instruction = vec![op as u8];
+            let operand = operands[0] as u16;
+            instruction.extend_from_slice(&operand.to_be_bytes());
+            instruction.push(operands[1] as u8);
+            instruction
         }
         _ => vec![op as u8],
     }

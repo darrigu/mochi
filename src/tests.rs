@@ -313,6 +313,15 @@ mod tests {
     #[test]
     fn test_functions_higher_order() {
         let input = "
+            let make_adder = fn(x) do
+                return fn(y) do return x + y end
+            end
+            let add5 = make_adder(5)
+            add5(10)
+        ";
+        test_script(input, Object::Number(15.0));
+
+        let input = "
             let apply_twice = fn(f, x) do return f(f(x)) end
             let double = fn(x) do return x * 2 end
             apply_twice(double, 5)
@@ -353,6 +362,17 @@ mod tests {
         test_script(input, Object::Number(26.0));
 
         let input = "
+            let compose = fn(f, g) do
+                return fn(x) do return f(g(x)) end
+            end
+            let add1 = fn(x) do return x + 1 end
+            let mul2 = fn(x) do return x * 2 end
+            let add1_then_mul2 = compose(mul2, add1)
+            add1_then_mul2(5)
+        ";
+        test_script(input, Object::Number(12.0));
+
+        let input = "
             let a = 5
             let b = 10
             let c = fn(x) do return x * 2 end
@@ -360,6 +380,22 @@ mod tests {
             result
         ";
         test_script(input, Object::Number(30.0))
+    }
+
+    #[test]
+    fn test_everything_is_an_expression() {
+        test_script("let x = 100", Object::Number(100.0));
+        test_script("let x = let y = 100", Object::Number(100.0));
+
+        test_script("let a = 5 + (let b = 10) a + b", Object::Number(25.0));
+
+        test_script("let x = if true do 10 else 20 end x", Object::Number(10.0));
+        test_script("let x = if false do 10 else 20 end x", Object::Number(20.0));
+
+        test_script(
+            "let x = if true do let y = 5 y else 0 end x",
+            Object::Number(5.0),
+        );
     }
 
     #[test]

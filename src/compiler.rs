@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub enum SymbolScope {
     Global,
     Local,
+    Free,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +21,7 @@ pub struct SymbolTable {
     pub store: HashMap<String, Symbol>,
     pub num_definitions: usize,
     pub outer: Option<Box<SymbolTable>>,
+    pub free_symbols: Vec<Symbol>,
 }
 
 impl SymbolTable {
@@ -28,6 +30,7 @@ impl SymbolTable {
             store: HashMap::new(),
             num_definitions: 0,
             outer: None,
+            free_symbols: vec![],
         }
     }
 
@@ -36,6 +39,7 @@ impl SymbolTable {
             store: HashMap::new(),
             num_definitions: 0,
             outer: Some(Box::new(outer)),
+            free_symbols: vec![],
         }
     }
 
@@ -53,6 +57,23 @@ impl SymbolTable {
         symbol
     }
 
+    pub fn define_free(&mut self, original: &Symbol) -> Symbol {
+        for (i, sym) in self.free_symbols.iter().enumerate() {
+            if sym.index == original.index && sym.scope == original.scope {
+                return Symbol {
+                    scope: SymbolScope::Free,
+                    index: i,
+                };
+            }
+        }
+        let idx = self.free_symbols.len();
+        self.free_symbols.push(original.clone());
+        Symbol {
+            scope: SymbolScope::Free,
+            index: idx,
+        }
+    }
+
     pub fn resolve(&self, name: &str) -> Option<Symbol> {
         if let Some(symbol) = self.store.get(name) {
             Some(symbol.clone())
@@ -64,7 +85,6 @@ impl SymbolTable {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct Bytecode {
     pub instructions: Vec<u8>,
     pub constants: Vec<Object>,
@@ -94,36 +114,43 @@ impl Compiler {
     }
 
     pub fn compile_program(&mut self, program: &Program) -> Result<(), String> {
-        for expr in program.expressions.iter() {
+        if program.expressions.is_empty() {
+            return Ok(());
+        }
+        for (i, expr) in program.expressions.iter().enumerate() {
             self.compile_expression(expr)?;
+            if i != program.expressions.len() - 1 {
+                self.emit(Opcode::OpPop, &[]);
+            }
         }
         Ok(())
     }
 
-    fn replace_instruction(&mut self, pos: usize, new_instruction: Vec<u8>) {
-        for (i, byte) in new_instruction.iter().enumerate() {
-            self.instructions[pos + i] = *byte;
+    fn resolve_name(&mut self, name: &str) -> Result<Symbol, String> {
+        match self.symbol_table.resolve(name) {
+            Some(symbol) => {
+                if symbol.scope != SymbolScope::Global
+                    && self.symbol_table.outer.is_some()
+                    && self.symbol_table.store.get(name).is_none()
+                {
+                    Ok(self.symbol_table.define_free(&symbol))
+                } else {
+                    Ok(symbol)
+                }
+            }
+            None => Err(format!("Undefined variable: {}", name)),
         }
-    }
-
-    fn change_operand(&mut self, op_pos: usize, operand: usize) {
-        let op = Opcode::from(self.instructions[op_pos]);
-        let new_instruction = make(op, &[operand]);
-        self.replace_instruction(op_pos, new_instruction);
     }
 
     fn compile_expression(&mut self, expr: &Expression) -> Result<(), String> {
         match expr {
             Expression::Identifier(name) => {
-                if let Some(symbol) = self.symbol_table.resolve(name) {
-                    if symbol.scope == SymbolScope::Local {
-                        self.emit(Opcode::OpGetLocal, &[symbol.index]);
-                    } else {
-                        self.emit(Opcode::OpGetGlobal, &[symbol.index]);
-                    }
-                } else {
-                    return Err(format!("Undefined variable: {}", name));
-                }
+                let symbol = self.resolve_name(name)?;
+                match symbol.scope {
+                    SymbolScope::Local => self.emit(Opcode::OpGetLocal, &[symbol.index]),
+                    SymbolScope::Global => self.emit(Opcode::OpGetGlobal, &[symbol.index]),
+                    SymbolScope::Free => self.emit(Opcode::OpGetFree, &[symbol.index]),
+                };
             }
             Expression::Function { parameters, body } => {
                 let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
@@ -131,13 +158,15 @@ impl Compiler {
                 for param in parameters {
                     fn_compiler.symbol_table.define(param.clone());
                 }
-
                 fn_compiler.compile_block(body)?;
                 fn_compiler.emit(Opcode::OpReturnValue, &[]);
 
                 let num_locals = fn_compiler.symbol_table.num_definitions;
+                let free_symbols = fn_compiler.symbol_table.free_symbols.clone();
+                let num_free = free_symbols.len();
 
                 let bytecode = fn_compiler.bytecode();
+
                 let fn_obj = Object::CompiledFunction {
                     instructions: bytecode.instructions,
                     constants: bytecode.constants,
@@ -146,7 +175,16 @@ impl Compiler {
                 };
 
                 let pos = self.add_constant(fn_obj);
-                self.emit(Opcode::OpConstant, &[pos]);
+
+                for free_sym in &free_symbols {
+                    match free_sym.scope {
+                        SymbolScope::Local => self.emit(Opcode::OpGetLocal, &[free_sym.index]),
+                        SymbolScope::Free => self.emit(Opcode::OpGetFree, &[free_sym.index]),
+                        SymbolScope::Global => self.emit(Opcode::OpGetGlobal, &[free_sym.index]),
+                    };
+                }
+
+                self.emit(Opcode::OpClosure, &[pos, num_free]);
             }
             Expression::Call {
                 function,
@@ -165,7 +203,6 @@ impl Compiler {
             } => {
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
-
                 match operator.as_str() {
                     "+" => self.emit(Opcode::OpAdd, &[]),
                     "-" => self.emit(Opcode::OpSub, &[]),
@@ -187,8 +224,7 @@ impl Compiler {
                 };
             }
             Expression::Number(val) => {
-                let obj = Object::Number(*val);
-                let pos = self.add_constant(obj);
+                let pos = self.add_constant(Object::Number(*val));
                 self.emit(Opcode::OpConstant, &[pos]);
             }
             Expression::Boolean(val) => {
@@ -198,9 +234,7 @@ impl Compiler {
                     self.emit(Opcode::OpFalse, &[]);
                 }
             }
-            Expression::Block(exprs) => {
-                self.compile_block(exprs)?;
-            }
+            Expression::Block(exprs) => self.compile_block(exprs)?,
             Expression::If {
                 condition,
                 consequence,
@@ -213,53 +247,19 @@ impl Compiler {
 
                 if let Some(alt) = alternative {
                     let jump_pos = self.emit(Opcode::OpJump, &[9999]);
-
-                    let alternative_pos = self.instructions.len();
-                    self.change_operand(jump_not_truthy_pos, alternative_pos);
-
+                    self.change_operand(jump_not_truthy_pos, self.instructions.len());
                     self.compile_expression(alt)?;
-
-                    let end_pos = self.instructions.len();
-                    self.change_operand(jump_pos, end_pos);
+                    self.change_operand(jump_pos, self.instructions.len());
                 } else {
                     let jump_pos = self.emit(Opcode::OpJump, &[9999]);
-
-                    let alternative_pos = self.instructions.len();
-                    self.change_operand(jump_not_truthy_pos, alternative_pos);
-
+                    self.change_operand(jump_not_truthy_pos, self.instructions.len());
                     self.emit(Opcode::OpFalse, &[]);
-
-                    let end_pos = self.instructions.len();
-                    self.change_operand(jump_pos, end_pos);
+                    self.change_operand(jump_pos, self.instructions.len());
                 }
             }
             Expression::Let { name, value } => {
                 let symbol = self.symbol_table.define(name.clone());
-
-                if let Expression::Function { parameters, body } = value.as_ref() {
-                    let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
-
-                    for param in parameters {
-                        fn_compiler.symbol_table.define(param.clone());
-                    }
-
-                    fn_compiler.compile_block(body)?;
-                    fn_compiler.emit(Opcode::OpReturnValue, &[]);
-
-                    let num_locals = fn_compiler.symbol_table.num_definitions;
-                    let bytecode = fn_compiler.bytecode();
-                    let fn_obj = Object::CompiledFunction {
-                        instructions: bytecode.instructions,
-                        constants: bytecode.constants,
-                        num_locals,
-                        num_parameters: parameters.len(),
-                    };
-
-                    let pos = self.add_constant(fn_obj);
-                    self.emit(Opcode::OpConstant, &[pos]);
-                } else {
-                    self.compile_expression(value)?;
-                }
+                self.compile_expression(value)?;
 
                 if symbol.scope == SymbolScope::Local {
                     self.emit(Opcode::OpSetLocal, &[symbol.index]);
@@ -281,11 +281,24 @@ impl Compiler {
             self.emit(Opcode::OpFalse, &[]);
             return Ok(());
         }
-
-        for expr in expressions.iter() {
+        for (i, expr) in expressions.iter().enumerate() {
             self.compile_expression(expr)?;
+            if i != expressions.len() - 1 {
+                self.emit(Opcode::OpPop, &[]);
+            }
         }
         Ok(())
+    }
+
+    fn replace_instruction(&mut self, pos: usize, new_instruction: Vec<u8>) {
+        for (i, byte) in new_instruction.iter().enumerate() {
+            self.instructions[pos + i] = *byte;
+        }
+    }
+
+    fn change_operand(&mut self, op_pos: usize, operand: usize) {
+        let op = Opcode::from(self.instructions[op_pos]);
+        self.replace_instruction(op_pos, make(op, &[operand]));
     }
 
     fn add_constant(&mut self, obj: Object) -> usize {

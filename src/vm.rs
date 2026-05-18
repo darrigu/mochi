@@ -8,6 +8,7 @@ const GLOBALS_SIZE: usize = 65536;
 pub struct Frame {
     pub instructions: Vec<u8>,
     pub constants: Vec<Object>,
+    pub free: Vec<Object>,
     pub ip: usize,
     pub bp: usize,
 }
@@ -25,6 +26,7 @@ impl VM {
         let main_frame = Frame {
             instructions: bytecode.instructions,
             constants: bytecode.constants,
+            free: vec![],
             ip: 0,
             bp: 0,
         };
@@ -56,7 +58,7 @@ impl VM {
                     let global_index = ((frame.instructions[frame.ip] as usize) << 8)
                         | (frame.instructions[frame.ip + 1] as usize);
                     frame.ip += 2;
-                    let val = self.pop();
+                    let val = self.stack[self.sp - 1].clone();
                     self.globals[global_index] = val;
                 }
                 Opcode::OpGetGlobal => {
@@ -68,14 +70,36 @@ impl VM {
                 Opcode::OpSetLocal => {
                     let local_idx = frame.instructions[frame.ip] as usize;
                     frame.ip += 1;
-                    let val = self.pop();
+                    let val = self.stack[self.sp - 1].clone();
                     self.stack[frame.bp + local_idx] = val;
                 }
                 Opcode::OpGetLocal => {
                     let local_idx = frame.instructions[frame.ip] as usize;
                     frame.ip += 1;
-                    let val = self.stack[frame.bp + local_idx].clone();
-                    self.push(val)?;
+                    self.push(self.stack[frame.bp + local_idx].clone())?;
+                }
+                Opcode::OpClosure => {
+                    let const_idx = ((frame.instructions[frame.ip] as usize) << 8)
+                        | (frame.instructions[frame.ip + 1] as usize);
+                    let num_free = frame.instructions[frame.ip + 2] as usize;
+                    frame.ip += 3;
+
+                    let mut free = Vec::with_capacity(num_free);
+                    for _ in 0..num_free {
+                        free.push(self.pop());
+                    }
+                    free.reverse();
+
+                    let func = frame.constants[const_idx].clone();
+                    self.push(Object::Closure {
+                        func: Box::new(func),
+                        free,
+                    })?;
+                }
+                Opcode::OpGetFree => {
+                    let free_idx = frame.instructions[frame.ip] as usize;
+                    frame.ip += 1;
+                    self.push(frame.free[free_idx].clone())?;
                 }
                 Opcode::OpJump => {
                     let pos = ((frame.instructions[frame.ip] as usize) << 8)
@@ -95,52 +119,44 @@ impl VM {
                     let num_args = frame.instructions[frame.ip] as usize;
                     frame.ip += 1;
 
-                    let func_obj_idx = self.sp - 1 - num_args;
-                    let func_obj = self.stack[func_obj_idx].clone();
+                    let func_obj = self.stack[self.sp - 1 - num_args].clone();
 
-                    if let Object::CompiledFunction {
-                        instructions,
-                        constants,
-                        num_locals,
-                        num_parameters,
-                    } = func_obj
-                    {
-                        if num_parameters != num_args {
-                            return Err(format!(
-                                "Wrong number of arguments: want {}, got {}",
-                                num_parameters, num_args
-                            ));
-                        }
-
-                        self.frames.push(frame);
-
-                        let bp = self.sp - num_args;
-
-                        self.sp = bp + num_locals;
-
-                        frame = Frame {
+                    if let Object::Closure { func, free } = func_obj {
+                        if let Object::CompiledFunction {
                             instructions,
                             constants,
-                            ip: 0,
-                            bp,
-                        };
+                            num_locals,
+                            num_parameters,
+                        } = *func
+                        {
+                            if num_parameters != num_args {
+                                return Err(format!("Wrong number of arguments"));
+                            }
+
+                            self.frames.push(frame);
+                            let bp = self.sp - num_args;
+                            self.sp = bp + num_locals;
+
+                            frame = Frame {
+                                instructions,
+                                constants,
+                                free,
+                                ip: 0,
+                                bp,
+                            };
+                        }
                     } else {
                         return Err("Calling non-function".to_string());
                     }
                 }
                 Opcode::OpReturnValue => {
                     let return_value = self.pop();
-
                     self.sp = frame.bp - 1;
-
                     self.push(return_value)?;
                     frame = self.frames.pop().unwrap();
                 }
                 Opcode::OpAdd | Opcode::OpSub | Opcode::OpMul | Opcode::OpDiv => {
                     self.execute_binary_operation(op)?
-                }
-                Opcode::OpPop => {
-                    self.last_popped_stack_elem = Some(self.pop());
                 }
                 Opcode::OpTrue => self.push(Object::Boolean(true))?,
                 Opcode::OpFalse => self.push(Object::Boolean(false))?,
@@ -149,6 +165,9 @@ impl VM {
                 }
                 Opcode::OpMinus => self.execute_minus_operator()?,
                 Opcode::OpBang => self.execute_bang_operator()?,
+                Opcode::OpPop => {
+                    self.pop();
+                }
             }
         }
 
@@ -174,7 +193,7 @@ impl VM {
             };
             return self.push(Object::Number(result));
         }
-        Err("Unsupported types for binary operation".to_string())
+        Err("Unsupported types for binary".to_string())
     }
 
     fn execute_comparison(&mut self, op: Opcode) -> Result<(), String> {
@@ -226,7 +245,7 @@ impl VM {
 
     fn push(&mut self, obj: Object) -> Result<(), String> {
         if self.sp >= STACK_SIZE {
-            return Err("Stack overflow!".to_string());
+            return Err("Stack overflow".to_string());
         }
         self.stack[self.sp] = obj;
         self.sp += 1;

@@ -8,4 +8,8 @@ pub enum Object {
         num_locals: usize,
         num_parameters: usize,
     },
+    Closure {
+        func: Box<Object>,
+        free: Vec<Object>,
+    },
 }
