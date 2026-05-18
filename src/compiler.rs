@@ -156,6 +156,10 @@ impl Compiler {
                     SymbolScope::Free => self.emit(Opcode::OpGetFree, &[symbol.index]),
                 };
             }
+            Expression::StringLiteral(val) => {
+                let pos = self.add_constant(Object::String(val.clone()));
+                self.emit(Opcode::OpConstant, &[pos]);
+            }
             Expression::Assign { name, value } => {
                 let symbol = self.resolve_name(name)?;
                 if symbol.is_const {

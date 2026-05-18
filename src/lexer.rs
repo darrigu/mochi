@@ -13,7 +13,6 @@ pub enum Token {
 
     Ident(String),
     Number(f64),
-    #[allow(dead_code)]
     StringLiteral(String),
 
     Plus,
@@ -114,6 +113,7 @@ impl Lexer {
                     Token::Bang
                 }
             }
+            '"' => Token::StringLiteral(self.read_string()),
             '\0' => Token::EOF,
             _ => {
                 if self.ch.is_alphabetic() {
@@ -145,6 +145,21 @@ impl Lexer {
                 break;
             }
         }
+    }
+
+    fn read_string(&mut self) -> String {
+        let pos = self.position + 1;
+        loop {
+            self.read_char();
+            if self.ch == '"' || self.ch == '\0' {
+                break;
+            }
+        }
+        let s = self.input[pos..self.position].iter().collect();
+        if self.ch == '"' {
+            self.read_char();
+        }
+        s
     }
 
     fn read_identifier(&mut self) -> String {

@@ -2,7 +2,6 @@
 pub enum Expression {
     Identifier(String),
     Number(f64),
-    #[allow(dead_code)]
     StringLiteral(String),
     Boolean(bool),
 

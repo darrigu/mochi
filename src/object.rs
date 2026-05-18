@@ -2,6 +2,7 @@
 pub enum Object {
     Number(f64),
     Boolean(bool),
+    String(String),
     CompiledFunction {
         instructions: Vec<u8>,
         constants: Vec<Object>,
