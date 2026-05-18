@@ -13,11 +13,15 @@ use vm::VM;
 
 fn main() {
     let input = "
-        let age = 25
-        let years_to_add = 10
-        let multiplier = 2
-        let result = (age + years_to_add)*multiplier
-        result
+        let x = 10
+        
+        let y = if x == 10 do
+            100
+        else
+            50
+        end
+        
+        y
     ";
 
     println!("Compiling Mochi script:\n{}\n", input);

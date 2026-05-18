@@ -73,6 +73,18 @@ impl Compiler {
         Ok(())
     }
 
+    fn replace_instruction(&mut self, pos: usize, new_instruction: Vec<u8>) {
+        for (i, byte) in new_instruction.iter().enumerate() {
+            self.instructions[pos + i] = *byte;
+        }
+    }
+
+    fn change_operand(&mut self, op_pos: usize, operand: usize) {
+        let op = Opcode::from(self.instructions[op_pos]);
+        let new_instruction = make(op, &[operand]);
+        self.replace_instruction(op_pos, new_instruction);
+    }
+
     fn compile_expression(&mut self, expr: &Expression) -> Result<(), String> {
         match expr {
             Expression::Identifier(name) => {
@@ -120,7 +132,72 @@ impl Compiler {
                     self.emit(Opcode::OpFalse, &[]);
                 }
             }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                self.compile_expression(condition)?;
+                let jump_not_truthy_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+
+                self.compile_block(consequence)?;
+
+                if let Some(alt) = alternative {
+                    let jump_pos = self.emit(Opcode::OpJump, &[9999]);
+
+                    let alternative_pos = self.instructions.len();
+                    self.change_operand(jump_not_truthy_pos, alternative_pos);
+
+                    self.compile_block(alt)?;
+
+                    let end_pos = self.instructions.len();
+                    self.change_operand(jump_pos, end_pos);
+                } else {
+                    let jump_pos = self.emit(Opcode::OpJump, &[9999]);
+
+                    let alternative_pos = self.instructions.len();
+                    self.change_operand(jump_not_truthy_pos, alternative_pos);
+
+                    self.emit(Opcode::OpFalse, &[]);
+
+                    let end_pos = self.instructions.len();
+                    self.change_operand(jump_pos, end_pos);
+                }
+            }
             _ => return Err(format!("Unimplemented expression: {:?}", expr)),
+        }
+        Ok(())
+    }
+
+    fn compile_block(&mut self, statements: &[Statement]) -> Result<(), String> {
+        if statements.is_empty() {
+            self.emit(Opcode::OpFalse, &[]);
+            return Ok(());
+        }
+
+        for (i, stmt) in statements.iter().enumerate() {
+            let is_last = i == statements.len() - 1;
+
+            match stmt {
+                Statement::Expression(expr) => {
+                    self.compile_expression(expr)?;
+                    if !is_last {
+                        self.emit(Opcode::OpPop, &[]);
+                    }
+                }
+                Statement::Let { name, value } => {
+                    self.compile_expression(value)?;
+                    let index = self.symbol_table.define(name.clone());
+                    self.emit(Opcode::OpSetGlobal, &[index]);
+
+                    if is_last {
+                        self.emit(Opcode::OpFalse, &[]);
+                    }
+                }
+                Statement::Return(_) => {
+                    return Err("Return not implemented in compiler yet!".to_string());
+                }
+            }
         }
         Ok(())
     }

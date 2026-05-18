@@ -73,10 +73,32 @@ impl VM {
                 Opcode::OpEqual | Opcode::OpNotEqual => self.execute_comparison(op)?,
                 Opcode::OpMinus => self.execute_minus_operator()?,
                 Opcode::OpBang => self.execute_bang_operator()?,
+                Opcode::OpJump => {
+                    let pos = ((self.instructions[ip] as usize) << 8)
+                        | (self.instructions[ip + 1] as usize);
+                    ip = pos;
+                }
+                Opcode::OpJumpNotTruthy => {
+                    let pos = ((self.instructions[ip] as usize) << 8)
+                        | (self.instructions[ip + 1] as usize);
+                    ip += 2;
+
+                    let condition = self.pop();
+                    if !self.is_truthy(condition) {
+                        ip = pos;
+                    }
+                }
             }
         }
 
         Ok(())
+    }
+
+    fn is_truthy(&self, obj: Object) -> bool {
+        match obj {
+            Object::Boolean(val) => val,
+            _ => true,
+        }
     }
 
     fn execute_comparison(&mut self, op: Opcode) -> Result<(), String> {
