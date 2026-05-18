@@ -483,4 +483,15 @@ mod tests {
         ";
         test_script(input, Object::Number(0.0));
     }
+
+    #[test]
+    fn test_comments() {
+        let input = "
+            let x = 10 -- This is a comment
+            -- This entire line is ignored
+            let y = 5 -- Another comment
+            x + y -- Result should be 15
+        ";
+        test_script(input, Object::Number(15.0));
+    }
 }

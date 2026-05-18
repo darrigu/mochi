@@ -2,4 +2,5 @@ fn greet(name) do
     name
 end
 
-let x = if 6@ 10
+let x = 3 -- if 6@ 10
+x + 3

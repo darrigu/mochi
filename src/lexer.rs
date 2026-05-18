@@ -80,7 +80,7 @@ impl Lexer {
     }
 
     pub fn next_token(&mut self) -> (Token, usize, usize) {
-        self.skip_whitespace();
+        self.skip_ignored();
 
         let tok_line = self.line;
         let tok_col = self.col;
@@ -133,9 +133,17 @@ impl Lexer {
         (token, tok_line, tok_col)
     }
 
-    fn skip_whitespace(&mut self) {
-        while self.ch.is_whitespace() {
-            self.read_char();
+    fn skip_ignored(&mut self) {
+        loop {
+            if self.ch.is_whitespace() {
+                self.read_char();
+            } else if self.ch == '-' && self.peek_char() == '-' {
+                while self.ch != '\n' && self.ch != '\0' {
+                    self.read_char();
+                }
+            } else {
+                break;
+            }
         }
     }
 
