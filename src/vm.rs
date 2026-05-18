@@ -21,6 +21,21 @@ pub struct VM {
     pub last_popped_stack_elem: Option<Object>,
 }
 
+#[inline]
+fn read_u16(frame: &mut Frame) -> usize {
+    let val = ((frame.instructions[frame.ip] as usize) << 8)
+        | (frame.instructions[frame.ip + 1] as usize);
+    frame.ip += 2;
+    val
+}
+
+#[inline]
+fn read_u8(frame: &mut Frame) -> usize {
+    let val = frame.instructions[frame.ip] as usize;
+    frame.ip += 1;
+    val
+}
+
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
         let main_frame = Frame {
@@ -50,45 +65,35 @@ impl VM {
         let mut frame = self.frames.pop().unwrap();
 
         while frame.ip < frame.instructions.len() {
-            let op = Opcode::from(frame.instructions[frame.ip]);
-            frame.ip += 1;
+            let op = Opcode::from(read_u8(&mut frame) as u8);
 
             match op {
                 Opcode::OpConstant => {
-                    let const_index = ((frame.instructions[frame.ip] as usize) << 8)
-                        | (frame.instructions[frame.ip + 1] as usize);
-                    frame.ip += 2;
+                    let const_index = read_u16(&mut frame);
                     self.push(frame.constants[const_index].clone())?;
                 }
+
                 Opcode::OpSetGlobal => {
-                    let global_index = ((frame.instructions[frame.ip] as usize) << 8)
-                        | (frame.instructions[frame.ip + 1] as usize);
-                    frame.ip += 2;
-                    let val = self.stack[self.sp - 1].clone();
-                    self.globals[global_index] = val;
+                    let global_index = read_u16(&mut frame);
+                    self.globals[global_index] = self.peek(0);
                 }
                 Opcode::OpGetGlobal => {
-                    let global_index = ((frame.instructions[frame.ip] as usize) << 8)
-                        | (frame.instructions[frame.ip + 1] as usize);
-                    frame.ip += 2;
+                    let global_index = read_u16(&mut frame);
                     self.push(self.globals[global_index].clone())?;
                 }
+
                 Opcode::OpSetLocal => {
-                    let local_idx = frame.instructions[frame.ip] as usize;
-                    frame.ip += 1;
-                    let val = self.stack[self.sp - 1].clone();
-                    self.stack[frame.bp + local_idx] = val;
+                    let local_idx = read_u8(&mut frame);
+                    self.stack[frame.bp + local_idx] = self.peek(0);
                 }
                 Opcode::OpGetLocal => {
-                    let local_idx = frame.instructions[frame.ip] as usize;
-                    frame.ip += 1;
+                    let local_idx = read_u8(&mut frame);
                     self.push(self.stack[frame.bp + local_idx].clone())?;
                 }
+
                 Opcode::OpClosure => {
-                    let const_idx = ((frame.instructions[frame.ip] as usize) << 8)
-                        | (frame.instructions[frame.ip + 1] as usize);
-                    let num_free = frame.instructions[frame.ip + 2] as usize;
-                    frame.ip += 3;
+                    let const_idx = read_u16(&mut frame);
+                    let num_free = read_u8(&mut frame);
 
                     let mut free = Vec::with_capacity(num_free);
                     for _ in 0..num_free {
@@ -103,35 +108,28 @@ impl VM {
                     })?;
                 }
                 Opcode::OpGetFree => {
-                    let free_idx = frame.instructions[frame.ip] as usize;
-                    frame.ip += 1;
+                    let free_idx = read_u8(&mut frame);
                     self.push(frame.free[free_idx].clone())?;
                 }
                 Opcode::OpSetFree => {
-                    let free_idx = frame.instructions[frame.ip] as usize;
-                    frame.ip += 1;
-                    let val = self.stack[self.sp - 1].clone();
-                    frame.free[free_idx] = val;
+                    let free_idx = read_u8(&mut frame);
+                    frame.free[free_idx] = self.peek(0);
                 }
+
                 Opcode::OpJump => {
-                    let pos = ((frame.instructions[frame.ip] as usize) << 8)
-                        | (frame.instructions[frame.ip + 1] as usize);
-                    frame.ip = pos;
+                    frame.ip = read_u16(&mut frame);
                 }
                 Opcode::OpJumpNotTruthy => {
-                    let pos = ((frame.instructions[frame.ip] as usize) << 8)
-                        | (frame.instructions[frame.ip + 1] as usize);
-                    frame.ip += 2;
+                    let pos = read_u16(&mut frame);
                     let condition = self.pop();
-                    if !self.is_truthy(condition) {
+                    if !self.is_truthy(&condition) {
                         frame.ip = pos;
                     }
                 }
-                Opcode::OpCall => {
-                    let num_args = frame.instructions[frame.ip] as usize;
-                    frame.ip += 1;
 
-                    let func_obj = self.stack[self.sp - 1 - num_args].clone();
+                Opcode::OpCall => {
+                    let num_args = read_u8(&mut frame);
+                    let func_obj = self.peek(num_args);
 
                     match func_obj {
                         Object::Closure { func, free } => {
@@ -143,7 +141,7 @@ impl VM {
                             } = *func
                             {
                                 if num_parameters != num_args {
-                                    return Err(format!("Wrong number of arguments"));
+                                    return Err("Wrong number of arguments".into());
                                 }
 
                                 self.frames.push(frame);
@@ -165,7 +163,7 @@ impl VM {
                             let result = func(args);
                             self.push(result)?;
                         }
-                        _ => return Err("Calling non-function".to_string()),
+                        _ => return Err("Calling non-function".into()),
                     }
                 }
                 Opcode::OpReturnValue => {
@@ -174,31 +172,28 @@ impl VM {
                     self.push(return_value)?;
                     frame = self.frames.pop().unwrap();
                 }
+
                 Opcode::OpAdd | Opcode::OpSub | Opcode::OpMul | Opcode::OpDiv => {
                     self.execute_binary_operation(op)?
                 }
-                Opcode::OpTrue => self.push(Object::Boolean(true))?,
-                Opcode::OpFalse => self.push(Object::Boolean(false))?,
                 Opcode::OpEqual | Opcode::OpNotEqual | Opcode::OpGreater | Opcode::OpLess => {
                     self.execute_comparison(op)?
                 }
                 Opcode::OpMinus => self.execute_minus_operator()?,
                 Opcode::OpBang => self.execute_bang_operator()?,
+                Opcode::OpTrue => self.push(Object::Boolean(true))?,
+                Opcode::OpFalse => self.push(Object::Boolean(false))?,
                 Opcode::OpPop => {
                     self.pop();
                 }
             }
         }
 
-        if self.sp > 0 {
-            self.last_popped_stack_elem = Some(self.pop());
-        } else {
-            self.last_popped_stack_elem = None;
-        }
-
+        self.last_popped_stack_elem = if self.sp > 0 { Some(self.pop()) } else { None };
         Ok(())
     }
 
+    #[inline]
     fn execute_binary_operation(&mut self, op: Opcode) -> Result<(), String> {
         let right = self.pop();
         let left = self.pop();
@@ -212,12 +207,14 @@ impl VM {
             };
             return self.push(Object::Number(result));
         }
-        Err("Unsupported types for binary".to_string())
+        Err("Unsupported types for binary operation".into())
     }
 
+    #[inline]
     fn execute_comparison(&mut self, op: Opcode) -> Result<(), String> {
         let right = self.pop();
         let left = self.pop();
+
         if let (Object::Number(l), Object::Number(r)) = (&left, &right) {
             let result = match op {
                 Opcode::OpEqual => l == r,
@@ -228,6 +225,7 @@ impl VM {
             };
             return self.push(Object::Boolean(result));
         }
+
         if let (Object::Boolean(l), Object::Boolean(r)) = (&left, &right) {
             let result = match op {
                 Opcode::OpEqual => l == r,
@@ -236,17 +234,20 @@ impl VM {
             };
             return self.push(Object::Boolean(result));
         }
-        Err("Unsupported types for comparison".to_string())
+
+        Err("Unsupported types for comparison".into())
     }
 
+    #[inline]
     fn execute_minus_operator(&mut self) -> Result<(), String> {
         if let Object::Number(val) = self.pop() {
             self.push(Object::Number(-val))
         } else {
-            Err("Negation err".to_string())
+            Err("Negation err".into())
         }
     }
 
+    #[inline]
     fn execute_bang_operator(&mut self) -> Result<(), String> {
         let result = match self.pop() {
             Object::Boolean(val) => !val,
@@ -255,24 +256,32 @@ impl VM {
         self.push(Object::Boolean(result))
     }
 
-    fn is_truthy(&self, obj: Object) -> bool {
+    #[inline]
+    fn is_truthy(&self, obj: &Object) -> bool {
         match obj {
-            Object::Boolean(val) => val,
+            Object::Boolean(val) => *val,
             _ => true,
         }
     }
 
+    #[inline]
     fn push(&mut self, obj: Object) -> Result<(), String> {
         if self.sp >= STACK_SIZE {
-            return Err("Stack overflow".to_string());
+            return Err("Stack overflow".into());
         }
         self.stack[self.sp] = obj;
         self.sp += 1;
         Ok(())
     }
 
+    #[inline]
     fn pop(&mut self) -> Object {
         self.sp -= 1;
-        self.stack[self.sp].clone()
+        std::mem::take(&mut self.stack[self.sp])
+    }
+
+    #[inline]
+    fn peek(&self, offset: usize) -> Object {
+        self.stack[self.sp - 1 - offset].clone()
     }
 }

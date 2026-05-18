@@ -5,15 +5,13 @@ mod error_reporter;
 mod lexer;
 mod object;
 mod parser;
+mod tests;
 mod vm;
 
-mod tests;
-
+use crate::object::Object;
 use std::env;
 use std::fs;
 use std::process;
-
-use crate::object::Object;
 
 fn builtin_print(args: Vec<Object>) -> Object {
     for arg in args.iter() {
@@ -31,12 +29,11 @@ fn main() {
 
     if args.len() < 2 {
         println!("Mochi Language Compiler");
-        println!("Usage: mochi <filename.mc>");
+        println!("Usage: mochi <filename.moc>");
         process::exit(1);
     }
 
-    let filename = &args[1];
-    let source = fs::read_to_string(filename).expect("Could not read file");
+    let source = fs::read_to_string(&args[1]).expect("Could not read file");
 
     let lexer = lexer::Lexer::new(&source);
     let mut parser = parser::Parser::new(lexer);
@@ -54,7 +51,7 @@ fn main() {
     }
 
     let mut machine = vm::VM::new(compiler.bytecode());
-    machine.set_global(0, object::Object::Native(builtin_print));
+    machine.set_global(0, Object::Native(builtin_print));
 
     if let Err(e) = machine.run() {
         println!("\x1b[31;1mvm error\x1b[0m: {}", e);

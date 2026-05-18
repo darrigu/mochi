@@ -66,6 +66,19 @@ impl Parser {
         });
     }
 
+    pub fn parse_program(&mut self) -> Program {
+        let mut program = Program {
+            expressions: vec![],
+        };
+        while self.current_token != Token::EOF {
+            if let Some(expr) = self.parse_expression(Precedence::Lowest) {
+                program.expressions.push(expr);
+            }
+            self.next_token();
+        }
+        program
+    }
+
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let mut left_expr = match &self.current_token {
             Token::Ident(name) => Some(Expression::Identifier(name.clone())),
@@ -96,7 +109,6 @@ impl Parser {
             if !self.peek_is_infix_operator() {
                 return Some(left_expr);
             }
-
             self.next_token();
             left_expr = self.parse_infix_expression(left_expr)?;
         }
@@ -162,19 +174,6 @@ impl Parser {
         Some(Expression::Return(Box::new(value)))
     }
 
-    pub fn parse_program(&mut self) -> Program {
-        let mut program = Program {
-            expressions: vec![],
-        };
-        while self.current_token != Token::EOF {
-            if let Some(expr) = self.parse_expression(Precedence::Lowest) {
-                program.expressions.push(expr);
-            }
-            self.next_token();
-        }
-        program
-    }
-
     fn parse_block_expressions(&mut self) -> Vec<Expression> {
         let mut expressions = vec![];
         while self.current_token != Token::End
@@ -191,14 +190,12 @@ impl Parser {
 
     fn parse_block_expression(&mut self) -> Option<Expression> {
         self.next_token();
-
         let exprs = self.parse_block_expressions();
 
         if self.current_token != Token::End {
             self.report_error(format!("Expected 'end', got {:?}", self.current_token));
             return None;
         }
-
         Some(Expression::Block(exprs))
     }
 
@@ -219,20 +216,18 @@ impl Parser {
             self.next_token();
             self.next_token();
             let exprs = self.parse_block_expressions();
-
             if self.current_token != Token::End {
                 self.report_error(format!("Expected 'end', got {:?}", self.current_token));
                 return None;
             }
-
             exprs
         } else {
             self.next_token();
-            let expr = self.parse_expression(Precedence::Lowest)?;
-            vec![expr]
+            vec![self.parse_expression(Precedence::Lowest)?]
         };
 
         let func = Expression::Function { parameters, body };
+
         if let Some(n) = name {
             Some(Expression::Const {
                 name: n,
@@ -252,7 +247,6 @@ impl Parser {
         }
 
         self.next_token();
-
         if let Token::Ident(name) = &self.current_token {
             identifiers.push(name.clone());
         }
@@ -268,7 +262,6 @@ impl Parser {
         if !self.expect_peek(Token::RParen) {
             return None;
         }
-
         Some(identifiers)
     }
 
@@ -300,7 +293,6 @@ impl Parser {
         if !self.expect_peek(Token::RParen) {
             return None;
         }
-
         Some(args)
     }
 
@@ -314,7 +306,6 @@ impl Parser {
 
             let consequence_exprs = self.parse_block_expressions();
             let consequence = Expression::Block(consequence_exprs);
-
             let mut alternative = None;
 
             if self.current_token == Token::Else {
@@ -356,13 +347,10 @@ impl Parser {
 
     fn parse_grouped_expression(&mut self) -> Option<Expression> {
         self.next_token();
-
         let expr = self.parse_expression(Precedence::Lowest)?;
-
         if !self.expect_peek(Token::RParen) {
             return None;
         }
-
         Some(expr)
     }
 
@@ -375,9 +363,7 @@ impl Parser {
         .to_string();
 
         self.next_token();
-
         let right = self.parse_expression(Precedence::Prefix)?;
-
         Some(Expression::Prefix {
             operator,
             right: Box::new(right),
@@ -391,7 +377,6 @@ impl Parser {
 
         if self.current_token == Token::Assign {
             self.next_token();
-
             let value = self.parse_expression(Precedence::Lowest)?;
 
             if let Expression::Identifier(name) = left {
@@ -429,6 +414,18 @@ impl Parser {
         })
     }
 
+    fn token_precedence(token: &Token) -> Precedence {
+        match token {
+            Token::Eq | Token::NotEq => Precedence::Equals,
+            Token::Greater | Token::Less => Precedence::LessGreater,
+            Token::Plus | Token::Minus => Precedence::Sum,
+            Token::Star | Token::Slash => Precedence::Product,
+            Token::LParen => Precedence::Call,
+            Token::Assign => Precedence::Assign,
+            _ => Precedence::Lowest,
+        }
+    }
+
     fn peek_is_infix_operator(&self) -> bool {
         matches!(
             self.peek_token,
@@ -446,27 +443,11 @@ impl Parser {
     }
 
     fn current_precedence(&self) -> Precedence {
-        match self.current_token {
-            Token::Eq | Token::NotEq => Precedence::Equals,
-            Token::Greater | Token::Less => Precedence::LessGreater,
-            Token::Plus | Token::Minus => Precedence::Sum,
-            Token::Star | Token::Slash => Precedence::Product,
-            Token::LParen => Precedence::Call,
-            Token::Assign => Precedence::Assign,
-            _ => Precedence::Lowest,
-        }
+        Self::token_precedence(&self.current_token)
     }
 
     fn peek_precedence(&self) -> Precedence {
-        match self.peek_token {
-            Token::Eq | Token::NotEq => Precedence::Equals,
-            Token::Greater | Token::Less => Precedence::LessGreater,
-            Token::Plus | Token::Minus => Precedence::Sum,
-            Token::Star | Token::Slash => Precedence::Product,
-            Token::LParen => Precedence::Call,
-            Token::Assign => Precedence::Assign,
-            _ => Precedence::Lowest,
-        }
+        Self::token_precedence(&self.peek_token)
     }
 
     fn expect_peek(&mut self, expected: Token) -> bool {

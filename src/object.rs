@@ -17,6 +17,12 @@ pub enum Object {
     Native(fn(Vec<Object>) -> Object),
 }
 
+impl Default for Object {
+    fn default() -> Self {
+        Object::Number(0.0)
+    }
+}
+
 impl std::fmt::Debug for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -24,7 +30,8 @@ impl std::fmt::Debug for Object {
             Object::Boolean(b) => write!(f, "{}", b),
             Object::String(s) => write!(f, "\"{}\"", s),
             Object::Native(_) => write!(f, "<native fn>"),
-            _ => write!(f, "<object>"),
+            Object::CompiledFunction { .. } => write!(f, "<compiled fn>"),
+            Object::Closure { .. } => write!(f, "<closure>"),
         }
     }
 }

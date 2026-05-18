@@ -10,11 +10,9 @@ pub enum Token {
     Do,
     True,
     False,
-
     Ident(String),
     Number(f64),
     StringLiteral(String),
-
     Plus,
     Minus,
     Star,
@@ -25,14 +23,12 @@ pub enum Token {
     Greater,
     Less,
     Bang,
-
     LParen,
     RParen,
     LBrace,
     RBrace,
     Comma,
     Dot,
-
     Illegal(char),
     EOF,
 }
@@ -95,6 +91,8 @@ impl Lexer {
             '}' => Token::RBrace,
             ',' => Token::Comma,
             '.' => Token::Dot,
+            '>' => Token::Greater,
+            '<' => Token::Less,
             '=' => {
                 if self.peek_char() == '=' {
                     self.read_char();
@@ -103,8 +101,6 @@ impl Lexer {
                     Token::Assign
                 }
             }
-            '>' => Token::Greater,
-            '<' => Token::Less,
             '!' => {
                 if self.peek_char() == '=' {
                     self.read_char();
