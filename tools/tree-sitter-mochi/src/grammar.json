@@ -30,7 +30,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "boolean"
+          "name": "symbol"
         },
         {
           "type": "SYMBOL",
@@ -956,16 +956,16 @@
       "type": "PATTERN",
       "value": "\"[^\"]*\""
     },
-    "boolean": {
-      "type": "CHOICE",
+    "symbol": {
+      "type": "SEQ",
       "members": [
         {
           "type": "STRING",
-          "value": "true"
+          "value": ":"
         },
         {
-          "type": "STRING",
-          "value": "false"
+          "type": "SYMBOL",
+          "name": "identifier"
         }
       ]
     }

@@ -21,7 +21,7 @@ fn builtin_print(args: Vec<Object>) -> Object {
         }
     }
     println!();
-    Object::Null
+    Object::Atom("null".to_string())
 }
 
 fn main() {

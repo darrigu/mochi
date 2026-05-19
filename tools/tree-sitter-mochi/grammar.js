@@ -28,7 +28,7 @@ module.exports = grammar({
       $.identifier,
       $.number,
       $.string,
-      $.boolean,
+      $.symbol,
       $.let_expression,
       $.const_expression,
       $.assignment_expression,
@@ -171,7 +171,7 @@ module.exports = grammar({
     
     string: $ => /"[^"]*"/,
     
-    boolean: $ => choice('true', 'false'),
+    symbol: $ => seq(':', $.identifier),
   }
 });
 

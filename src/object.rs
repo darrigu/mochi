@@ -3,10 +3,9 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 #[derive(Clone, PartialEq)]
 #[allow(unpredictable_function_pointer_comparisons)]
 pub enum Object {
-    Null,
     Number(f64),
-    Boolean(bool),
     String(String),
+    Atom(String),
     Array(Rc<RefCell<Vec<Object>>>),
     Hash(Rc<RefCell<HashMap<String, Object>>>),
     CompiledFunction {
@@ -31,10 +30,9 @@ impl Default for Object {
 impl std::fmt::Debug for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Object::Null => write!(f, "null"),
             Object::Number(n) => write!(f, "{}", n),
-            Object::Boolean(b) => write!(f, "{}", b),
             Object::String(s) => write!(f, "\"{}\"", s),
+            Object::Atom(s) => write!(f, ":{}", s),
             Object::Array(arr) => {
                 let list = arr.borrow();
                 let items: Vec<String> = list.iter().map(|item| format!("{:?}", item)).collect();

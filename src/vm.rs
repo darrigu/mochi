@@ -197,6 +197,7 @@ impl VM {
                     for i in (0..temp.len()).step_by(2) {
                         let key_str = match &temp[i] {
                             Object::String(s) => s.clone(),
+                            Object::Atom(s) => s.clone(),
                             other => format!("{:?}", other),
                         };
                         hash.insert(key_str, temp[i + 1].clone());
@@ -216,7 +217,11 @@ impl VM {
                                 Object::String(s) => s,
                                 other => format!("{:?}", other),
                             };
-                            let val = hash.borrow().get(&key_str).cloned().unwrap_or(Object::Null);
+                            let val = hash
+                                .borrow()
+                                .get(&key_str)
+                                .cloned()
+                                .unwrap_or(Object::Atom("null".to_string()));
                             self.push(val)?;
                         }
                         Object::Array(arr) => {
@@ -225,7 +230,7 @@ impl VM {
                                 let val = if idx >= 0.0 && i < arr.borrow().len() {
                                     arr.borrow()[i].clone()
                                 } else {
-                                    Object::Null
+                                    Object::Atom("null".to_string())
                                 };
                                 self.push(val)?;
                             } else {
@@ -281,8 +286,6 @@ impl VM {
                 }
                 Opcode::OpMinus => self.execute_minus_operator()?,
                 Opcode::OpBang => self.execute_bang_operator()?,
-                Opcode::OpTrue => self.push(Object::Boolean(true))?,
-                Opcode::OpFalse => self.push(Object::Boolean(false))?,
                 Opcode::OpPop => {
                     self.pop();
                 }
@@ -323,6 +326,14 @@ impl VM {
         let right = self.pop();
         let left = self.pop();
 
+        let to_atom = |b: bool| {
+            Object::Atom(if b {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            })
+        };
+
         if let (Object::Number(l), Object::Number(r)) = (&left, &right) {
             let result = match op {
                 Opcode::OpEqual => l == r,
@@ -331,16 +342,31 @@ impl VM {
                 Opcode::OpLess => l < r,
                 _ => unreachable!(),
             };
-            return self.push(Object::Boolean(result));
+            return self.push(to_atom(result));
         }
 
-        if let (Object::Boolean(l), Object::Boolean(r)) = (&left, &right) {
+        if let (Object::Atom(l), Object::Atom(r)) = (&left, &right) {
             let result = match op {
                 Opcode::OpEqual => l == r,
                 Opcode::OpNotEqual => l != r,
-                _ => unreachable!(),
+                _ => return Err("Only == and != are supported for atoms".into()),
             };
-            return self.push(Object::Boolean(result));
+            return self.push(to_atom(result));
+        }
+
+        if let (Object::String(l), Object::String(r)) = (&left, &right) {
+            let result = match op {
+                Opcode::OpEqual => l == r,
+                Opcode::OpNotEqual => l != r,
+                _ => return Err("Only == and != are supported for strings".into()),
+            };
+            return self.push(to_atom(result));
+        }
+
+        if op == Opcode::OpEqual {
+            return self.push(to_atom(false));
+        } else if op == Opcode::OpNotEqual {
+            return self.push(to_atom(true));
         }
 
         Err("Unsupported types for comparison".into())
@@ -357,17 +383,24 @@ impl VM {
 
     #[inline]
     fn execute_bang_operator(&mut self) -> Result<(), String> {
-        let result = match self.pop() {
-            Object::Boolean(val) => !val,
-            _ => false,
-        };
-        self.push(Object::Boolean(result))
+        let obj = self.pop();
+        let is_truthy = self.is_truthy(&obj);
+        self.push(Object::Atom(if is_truthy {
+            "false".to_string()
+        } else {
+            "true".to_string()
+        }))
     }
 
     #[inline]
     fn is_truthy(&self, obj: &Object) -> bool {
         match obj {
-            Object::Boolean(val) => *val,
+            Object::Atom(s) => {
+                if s == "false" || s == "null" {
+                    return false;
+                }
+                true
+            }
             _ => true,
         }
     }

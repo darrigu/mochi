@@ -3,7 +3,7 @@ pub enum Expression {
     Identifier(String),
     Number(f64),
     StringLiteral(String),
-    Boolean(bool),
+    Atom(String),
     Array(Vec<Expression>),
 
     Prefix {

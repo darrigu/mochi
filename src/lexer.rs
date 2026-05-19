@@ -8,8 +8,6 @@ pub enum Token {
     End,
     Return,
     Do,
-    True,
-    False,
     Ident(String),
     Number(f64),
     StringLiteral(String),
@@ -195,8 +193,6 @@ impl Lexer {
             "end" => Token::End,
             "return" => Token::Return,
             "do" => Token::Do,
-            "true" => Token::True,
-            "false" => Token::False,
             _ => Token::Ident(ident.to_string()),
         }
     }

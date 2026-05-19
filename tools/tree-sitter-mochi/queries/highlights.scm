@@ -11,7 +11,7 @@
 
 (number) @constant.numeric
 (string) @string
-(boolean) @constant.builtin.boolean
+(symbol) @symbol
 
 (comment) @comment
 

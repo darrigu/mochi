@@ -95,8 +95,7 @@ impl Parser {
             Token::Ident(name) => Some(Expression::Identifier(name.clone())),
             Token::Number(val) => Some(Expression::Number(*val)),
             Token::StringLiteral(val) => Some(Expression::StringLiteral(val.clone())),
-            Token::True => Some(Expression::Boolean(true)),
-            Token::False => Some(Expression::Boolean(false)),
+            Token::Colon => self.parse_atom_literal(),
             Token::Bang | Token::Minus => self.parse_prefix_expression(),
             Token::LParen => self.parse_grouped_expression(),
             Token::If => self.parse_if_expression(),
@@ -130,6 +129,23 @@ impl Parser {
         }
 
         Some(left_expr)
+    }
+
+    fn parse_atom_literal(&mut self) -> Option<Expression> {
+        self.next_token();
+
+        if let Token::Ident(name) = &self.current_token {
+            Some(Expression::Atom(name.clone()))
+        } else {
+            self.report_error_with_hint(
+                format!(
+                    "Expected identifier after ':', got {:?}",
+                    self.current_token
+                ),
+                "Atoms must be valid names".to_string(),
+            );
+            None
+        }
     }
 
     fn parse_array_literal(&mut self) -> Option<Expression> {

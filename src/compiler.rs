@@ -140,6 +140,10 @@ impl Compiler {
                 self.emit(Opcode::OpConstant, &[pos]);
                 Ok(())
             }
+            Expression::Atom(name) => {
+                self.emit_atom(name);
+                Ok(())
+            }
             Expression::Assign { name, value } => self.compile_assign(name, value),
             Expression::Function { parameters, body } => self.compile_function(parameters, body),
             Expression::Call {
@@ -155,17 +159,6 @@ impl Compiler {
             Expression::Number(val) => {
                 let pos = self.add_constant(Object::Number(*val));
                 self.emit(Opcode::OpConstant, &[pos]);
-                Ok(())
-            }
-            Expression::Boolean(val) => {
-                self.emit(
-                    if *val {
-                        Opcode::OpTrue
-                    } else {
-                        Opcode::OpFalse
-                    },
-                    &[],
-                );
                 Ok(())
             }
             Expression::Block(exprs) => self.compile_block(exprs),
@@ -191,10 +184,7 @@ impl Compiler {
             Expression::Hash(pairs) => {
                 for (key, val) in pairs {
                     match key {
-                        Expression::Identifier(name) => {
-                            let pos = self.add_constant(Object::String(name.clone()));
-                            self.emit(Opcode::OpConstant, &[pos]);
-                        }
+                        Expression::Identifier(name) => self.emit_atom(name),
                         _ => self.compile_expression(key)?,
                     }
                     self.compile_expression(val)?;
@@ -348,7 +338,7 @@ impl Compiler {
             let jump_pos = self.emit(Opcode::OpJump, &[9999]);
             self.change_operand(jump_not_truthy_pos, self.instructions.len());
 
-            self.emit(Opcode::OpFalse, &[]);
+            self.emit_atom("null");
             self.change_operand(jump_pos, self.instructions.len());
         }
         Ok(())
@@ -373,7 +363,7 @@ impl Compiler {
 
     fn compile_block(&mut self, expressions: &[Expression]) -> Result<(), String> {
         if expressions.is_empty() {
-            self.emit(Opcode::OpFalse, &[]);
+            self.emit_atom("null");
             return Ok(());
         }
         for (i, expr) in expressions.iter().enumerate() {
@@ -422,6 +412,17 @@ impl Compiler {
         let pos = self.instructions.len();
         self.instructions.extend(instr);
         pos
+    }
+
+    fn emit_atom(&mut self, name: &str) {
+        let sym = Object::Atom(name.to_string());
+
+        let pos = match self.constants.iter().position(|c| *c == sym) {
+            Some(idx) => idx,
+            None => self.add_constant(sym),
+        };
+
+        self.emit(Opcode::OpConstant, &[pos]);
     }
 
     pub fn bytecode(self) -> Bytecode {

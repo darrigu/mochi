@@ -6,8 +6,6 @@ pub enum Opcode {
     OpMul,
     OpDiv,
     OpPop,
-    OpTrue,
-    OpFalse,
     OpEqual,
     OpNotEqual,
     OpGreater,
@@ -33,7 +31,7 @@ pub enum Opcode {
 
 impl From<u8> for Opcode {
     fn from(val: u8) -> Self {
-        if val <= 29 {
+        if val <= 27 {
             unsafe { std::mem::transmute(val) }
         } else {
             panic!("Unknown Opcode: {}", val)

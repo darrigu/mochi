@@ -107,51 +107,45 @@ mod tests {
     }
 
     #[test]
-    fn test_boolean_literals() {
-        test_script("true", Object::Boolean(true));
-        test_script("false", Object::Boolean(false));
-    }
-
-    #[test]
     fn test_comparisons() {
-        test_script("1 == 1", Object::Boolean(true));
-        test_script("1 == 2", Object::Boolean(false));
-        test_script("0 == 0", Object::Boolean(true));
+        test_script("1 == 1", Object::Atom("true".to_string()));
+        test_script("1 == 2", Object::Atom("false".to_string()));
+        test_script("0 == 0", Object::Atom("true".to_string()));
 
-        test_script("1 != 1", Object::Boolean(false));
-        test_script("1 != 2", Object::Boolean(true));
-        test_script("0 != 0", Object::Boolean(false));
+        test_script("1 != 1", Object::Atom("false".to_string()));
+        test_script("1 != 2", Object::Atom("true".to_string()));
+        test_script("0 != 0", Object::Atom("false".to_string()));
 
-        test_script("true == true", Object::Boolean(true));
-        test_script("false == false", Object::Boolean(true));
-        test_script("true == false", Object::Boolean(false));
-        test_script("false == true", Object::Boolean(false));
+        test_script(":true == :true", Object::Atom("true".to_string()));
+        test_script(":false == :false", Object::Atom("true".to_string()));
+        test_script(":true == :false", Object::Atom("false".to_string()));
+        test_script(":false == :true", Object::Atom("false".to_string()));
 
-        test_script("true != true", Object::Boolean(false));
-        test_script("false != false", Object::Boolean(false));
-        test_script("true != false", Object::Boolean(true));
-        test_script("false != true", Object::Boolean(true));
+        test_script(":true != :true", Object::Atom("false".to_string()));
+        test_script(":false != :false", Object::Atom("false".to_string()));
+        test_script(":true != :false", Object::Atom("true".to_string()));
+        test_script(":false != :true", Object::Atom("true".to_string()));
     }
 
     #[test]
     fn test_bang_operator() {
-        test_script("!true", Object::Boolean(false));
-        test_script("!false", Object::Boolean(true));
-        test_script("!5", Object::Boolean(false));
-        test_script("!0", Object::Boolean(false));
+        test_script("!:true", Object::Atom("false".to_string()));
+        test_script("!:false", Object::Atom("true".to_string()));
+        test_script("!5", Object::Atom("false".to_string()));
+        test_script("!0", Object::Atom("false".to_string()));
 
-        test_script("!!true", Object::Boolean(true));
-        test_script("!!false", Object::Boolean(false));
-        test_script("!!5", Object::Boolean(true));
-        test_script("!!0", Object::Boolean(true));
+        test_script("!!:true", Object::Atom("true".to_string()));
+        test_script("!!:false", Object::Atom("false".to_string()));
+        test_script("!!5", Object::Atom("true".to_string()));
+        test_script("!!0", Object::Atom("true".to_string()));
     }
 
     #[test]
     fn test_global_variables() {
         test_script("let a = 5 a", Object::Number(5.0));
         test_script("let a = 10 a", Object::Number(10.0));
-        test_script("let a = true a", Object::Boolean(true));
-        test_script("let a = false a", Object::Boolean(false));
+        test_script("let a = :true a", Object::Atom("true".to_string()));
+        test_script("let a = :false a", Object::Atom("false".to_string()));
 
         test_script("let a = 5 * 5 a", Object::Number(25.0));
         test_script("let a = 10 + 20 a", Object::Number(30.0));
@@ -206,13 +200,13 @@ mod tests {
 
     #[test]
     fn test_if_else_expressions() {
-        test_script("if true do 10 end", Object::Number(10.0));
-        test_script("if false do 10 end", Object::Boolean(false));
+        test_script("if :true do 10 end", Object::Number(10.0));
+        test_script("if :false do 10 end", Object::Atom("null".to_string()));
         test_script("if 1 do 10 end", Object::Number(10.0));
         test_script("if 0 do 10 end", Object::Number(10.0));
 
-        test_script("if true do 10 else 20 end", Object::Number(10.0));
-        test_script("if false do 10 else 20 end", Object::Number(20.0));
+        test_script("if :true do 10 else 20 end", Object::Number(10.0));
+        test_script("if :false do 10 else 20 end", Object::Number(20.0));
 
         test_script("if 1 == 1 do 10 else 20 end", Object::Number(10.0));
         test_script("if 1 == 2 do 10 else 20 end", Object::Number(20.0));
@@ -220,15 +214,15 @@ mod tests {
         test_script("if 1 != 1 do 10 else 20 end", Object::Number(20.0));
 
         test_script(
-            "if true do if true do 10 else 20 end else 30 end",
+            "if :true do if :true do 10 else 20 end else 30 end",
             Object::Number(10.0),
         );
         test_script(
-            "if true do if false do 10 else 20 end else 30 end",
+            "if :true do if :false do 10 else 20 end else 30 end",
             Object::Number(20.0),
         );
         test_script(
-            "if false do if true do 10 else 20 end else 30 end",
+            "if :false do if :true do 10 else 20 end else 30 end",
             Object::Number(30.0),
         );
 
@@ -263,7 +257,7 @@ mod tests {
         );
         test_script(
             "fn is_positive(x) do return x > 0 end is_positive(5)",
-            Object::Boolean(true),
+            Object::Atom("true".to_string()),
         );
         test_script(
             "fn calc(x) do return x + x * x end calc(3)",
@@ -418,11 +412,14 @@ mod tests {
 
         test_script("let a = 5 + (let b = 10) a + b", Object::Number(25.0));
 
-        test_script("let x = if true do 10 else 20 end x", Object::Number(10.0));
-        test_script("let x = if false do 10 else 20 end x", Object::Number(20.0));
+        test_script("let x = if :true do 10 else 20 end x", Object::Number(10.0));
+        test_script(
+            "let x = if :false do 10 else 20 end x",
+            Object::Number(20.0),
+        );
 
         test_script(
-            "let x = if true do let y = 5 y else 0 end x",
+            "let x = if :true do let y = 5 y else 0 end x",
             Object::Number(5.0),
         );
     }
@@ -503,7 +500,10 @@ mod tests {
             Object::Number(60.0),
         );
 
-        test_script("let list = [1, 2] list[5]", Object::Null);
+        test_script(
+            "let list = [1, 2] list[5]",
+            Object::Atom("null".to_string()),
+        );
 
         let input = "
             let data = [{ value: 10 }, [1, 2, 99]]
@@ -540,7 +540,7 @@ mod tests {
             Object::Number(100.0),
         );
 
-        test_script("let obj = {} obj.missing", Object::Null);
+        test_script("let obj = {} obj.missing", Object::Atom("null".to_string()));
 
         let input = "
             let a = { score: 10 }
@@ -549,5 +549,25 @@ mod tests {
             a.score
         ";
         test_script(input, Object::Number(999.0));
+    }
+
+    #[test]
+    fn test_atoms() {
+        test_script(":ok", Object::Atom("ok".to_string()));
+        test_script(":error == :error", Object::Atom("true".to_string()));
+        test_script(":ok == :error", Object::Atom("false".to_string()));
+        test_script(":ok != :error", Object::Atom("true".to_string()));
+
+        test_script(":ok == \"ok\"", Object::Atom("false".to_string()));
+
+        let input = "
+            let status = :success
+            if status == :success do
+                100
+            else
+                0
+            end
+        ";
+        test_script(input, Object::Number(100.0));
     }
 }
