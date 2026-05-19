@@ -11,7 +11,7 @@
 
 (number) @constant.numeric
 (string) @string
-(symbol) @symbol
+(atom) @string.special.symbol
 
 (comment) @comment
 

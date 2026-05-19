@@ -7,6 +7,8 @@
 /// <reference types="tree-sitter-cli/dsl" />
 // @ts-check
 
+const SYMBOL = /[a-zA-Z_][a-zA-Z0-9_]*/;
+
 module.exports = grammar({
   name: 'mochi',
 
@@ -28,7 +30,6 @@ module.exports = grammar({
       $.identifier,
       $.number,
       $.string,
-      $.symbol,
       $.let_expression,
       $.const_expression,
       $.assignment_expression,
@@ -42,7 +43,8 @@ module.exports = grammar({
       $.array_literal,
       $.hash_literal,
       $.index_expression,
-      $.dot_expression
+      $.dot_expression,
+      $.atom,
     ),
 
     let_expression: $ => prec.right(2, seq(
@@ -165,13 +167,13 @@ module.exports = grammar({
       )
     ),
 
-    identifier: $ => /[a-zA-Z_][a-zA-Z0-9_]*/,
+    identifier: $ => SYMBOL,
     
     number: $ => /\d+(\.\d+)?/,
     
     string: $ => /"[^"]*"/,
     
-    symbol: $ => seq(':', $.identifier),
+    atom: $ => token(seq(':', SYMBOL)),
   }
 });
 
