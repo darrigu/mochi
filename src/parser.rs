@@ -18,6 +18,7 @@ pub struct Diagnostic {
     pub line: usize,
     pub col: usize,
     pub message: String,
+    pub hint: Option<String>,
 }
 
 pub struct Parser {
@@ -63,6 +64,16 @@ impl Parser {
             line: self.cur_line,
             col: self.cur_col,
             message: msg,
+            hint: None,
+        });
+    }
+
+    fn report_error_with_hint(&mut self, msg: String, hint: String) {
+        self.errors.push(Diagnostic {
+            line: self.cur_line,
+            col: self.cur_col,
+            message: msg,
+            hint: Some(hint),
         });
     }
 
@@ -100,7 +111,10 @@ impl Parser {
                     Token::EOF => "Unexpected end of file".to_string(),
                     _ => format!("Unexpected token {:?}", self.current_token),
                 };
-                self.report_error(msg);
+                self.report_error_with_hint(
+                    msg,
+                    "Check for missing operators or mismatched parentheses".to_string(),
+                );
                 None
             }
         }?;
@@ -130,7 +144,10 @@ impl Parser {
         };
 
         if !self.expect_peek(Token::Assign) {
-            self.report_error(format!("Expected '=' after variable name '{}'", name));
+            self.report_error_with_hint(
+                format!("Expected '=' after variable name '{}'", name),
+                "Try adding '=' followed by a value, e.g., 'let x = 5'".to_string(),
+            );
             return None;
         }
         self.next_token();
@@ -156,7 +173,10 @@ impl Parser {
         };
 
         if !self.expect_peek(Token::Assign) {
-            self.report_error(format!("Expected '=' after constant name '{}'", name));
+            self.report_error_with_hint(
+                format!("Expected '=' after constant name '{}'", name),
+                "Constants must be initialized immediately. Try adding '= <value>'".to_string(),
+            );
             return None;
         }
         self.next_token();
@@ -193,7 +213,13 @@ impl Parser {
         let exprs = self.parse_block_expressions();
 
         if self.current_token != Token::End {
-            self.report_error(format!("Expected 'end', got {:?}", self.current_token));
+            self.report_error_with_hint(
+                format!(
+                    "Expected 'end' to close block, got {:?}",
+                    self.current_token
+                ),
+                "Blocks started with 'do' must explicitly end with 'end'".to_string(),
+            );
             return None;
         }
         Some(Expression::Block(exprs))
@@ -217,7 +243,13 @@ impl Parser {
             self.next_token();
             let exprs = self.parse_block_expressions();
             if self.current_token != Token::End {
-                self.report_error(format!("Expected 'end', got {:?}", self.current_token));
+                self.report_error_with_hint(
+                    format!(
+                        "Expected 'end' to close function body, got {:?}",
+                        self.current_token
+                    ),
+                    "Function bodies starting with 'do' must explicitly end with 'end'".to_string(),
+                );
                 return None;
             }
             exprs
@@ -260,6 +292,10 @@ impl Parser {
         }
 
         if !self.expect_peek(Token::RParen) {
+            self.report_error_with_hint(
+                "Expected ')'".to_string(),
+                "Function parameters must be closed".to_string(),
+            );
             return None;
         }
         Some(identifiers)
@@ -315,7 +351,13 @@ impl Parser {
             }
 
             if self.current_token != Token::End {
-                self.report_error(format!("Expected 'end', got {:?}", self.current_token));
+                self.report_error_with_hint(
+                    format!(
+                        "Expected 'end' for if expression, got {:?}",
+                        self.current_token
+                    ),
+                    "If expressions starting with 'do' must explicitly end with 'end'".to_string(),
+                );
                 return None;
             }
 
@@ -329,7 +371,11 @@ impl Parser {
             let consequence = self.parse_expression(Precedence::Lowest)?;
 
             if self.peek_token != Token::Else {
-                self.report_error("Inline 'if' expression must have an 'else' branch. Use 'if ... do ... end' for optional conditions.".to_string());
+                self.report_error_with_hint(
+                    "Inline 'if' expression is missing an 'else' branch".to_string(),
+                    "Try adding 'else <value>' or format it as a block: 'if <cond> do <val> end'"
+                        .to_string(),
+                );
                 return None;
             }
 
@@ -385,7 +431,10 @@ impl Parser {
                     value: Box::new(value),
                 });
             } else {
-                self.report_error("Invalid assignment target".to_string());
+                self.report_error_with_hint(
+                    "Invalid assignment target".to_string(),
+                    "You can only assign values to variables, e.g. 'x = 10'".to_string(),
+                );
                 return None;
             }
         }
@@ -455,10 +504,10 @@ impl Parser {
             self.next_token();
             true
         } else {
-            self.report_error(format!(
-                "Expected {:?}, got {:?}",
-                expected, self.peek_token
-            ));
+            self.report_error_with_hint(
+                format!("Expected {:?}, but got {:?}", expected, self.peek_token),
+                "Check the syntax in this area for missing punctuation".to_string(),
+            );
             false
         }
     }

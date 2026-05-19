@@ -46,7 +46,7 @@ fn main() {
 
     let mut compiler = compiler::Compiler::new();
     if let Err(e) = compiler.compile_program(&program) {
-        println!("\x1b[31;1mcompiler error\x1b[0m: {}", e);
+        error_reporter::report_system_error("compiler", &e);
         process::exit(1);
     }
 
@@ -54,7 +54,7 @@ fn main() {
     machine.set_global(0, Object::Native(builtin_print));
 
     if let Err(e) = machine.run() {
-        println!("\x1b[31;1mvm error\x1b[0m: {}", e);
+        error_reporter::report_system_error("runtime", &e);
         process::exit(1);
     }
 }
