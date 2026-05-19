@@ -21,7 +21,7 @@ fn builtin_print(args: Vec<Object>) -> Object {
         }
     }
     println!();
-    Object::Boolean(true)
+    Object::Null
 }
 
 fn main() {
