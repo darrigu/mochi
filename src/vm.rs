@@ -173,6 +173,59 @@ impl VM {
                     frame = self.frames.pop().unwrap();
                 }
 
+                Opcode::OpHash => {
+                    let num_pairs = read_u16(&mut frame);
+                    let mut hash = std::collections::HashMap::new();
+
+                    let mut temp = Vec::with_capacity(num_pairs * 2);
+                    for _ in 0..(num_pairs * 2) {
+                        temp.push(self.pop());
+                    }
+                    temp.reverse();
+
+                    for i in (0..temp.len()).step_by(2) {
+                        let key_str = match &temp[i] {
+                            Object::String(s) => s.clone(),
+                            other => format!("{:?}", other),
+                        };
+                        hash.insert(key_str, temp[i + 1].clone());
+                    }
+
+                    self.push(Object::Hash(std::rc::Rc::new(std::cell::RefCell::new(
+                        hash,
+                    ))))?;
+                }
+                Opcode::OpIndex => {
+                    let index = self.pop();
+                    let left = self.pop();
+                    if let Object::Hash(hash) = left {
+                        let key_str = match index {
+                            Object::String(s) => s,
+                            other => format!("{:?}", other),
+                        };
+                        let val = hash.borrow().get(&key_str).cloned().unwrap_or(Object::Null);
+                        self.push(val)?;
+                    } else {
+                        return Err("Property access only supported on objects".into());
+                    }
+                }
+                Opcode::OpSetIndex => {
+                    let value = self.pop();
+                    let index = self.pop();
+                    let left = self.pop();
+
+                    if let Object::Hash(hash) = left {
+                        let key_str = match index {
+                            Object::String(s) => s,
+                            other => format!("{:?}", other),
+                        };
+                        hash.borrow_mut().insert(key_str, value.clone());
+                        self.push(value)?;
+                    } else {
+                        return Err("Property assignment only supported on objects".into());
+                    }
+                }
+
                 Opcode::OpAdd | Opcode::OpSub | Opcode::OpMul | Opcode::OpDiv => {
                     self.execute_binary_operation(op)?
                 }

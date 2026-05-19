@@ -494,4 +494,32 @@ mod tests {
         ";
         test_script(input, Object::Number(15.0));
     }
+
+    #[test]
+    fn test_objects_and_mutability() {
+        test_script(
+            "let obj = { x: 10, y: 20 } obj.x + obj.y",
+            Object::Number(30.0),
+        );
+
+        test_script(
+            "let obj = { name: \"Mochi\" } obj[\"name\"]",
+            Object::String("Mochi".to_string()),
+        );
+
+        test_script(
+            "let obj = { a: 1 } obj.a = 100 obj.a",
+            Object::Number(100.0),
+        );
+
+        test_script("let obj = {} obj.missing", Object::Null);
+
+        let input = "
+            let a = { score: 10 }
+            let b = a
+            b.score = 999
+            a.score
+        ";
+        test_script(input, Object::Number(999.0));
+    }
 }

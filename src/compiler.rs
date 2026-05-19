@@ -181,6 +181,33 @@ impl Compiler {
                 self.emit(Opcode::OpReturnValue, &[]);
                 Ok(())
             }
+            Expression::Hash(pairs) => {
+                for (key, val) in pairs {
+                    match key {
+                        Expression::Identifier(name) => {
+                            let pos = self.add_constant(Object::String(name.clone()));
+                            self.emit(Opcode::OpConstant, &[pos]);
+                        }
+                        _ => self.compile_expression(key)?,
+                    }
+                    self.compile_expression(val)?;
+                }
+                self.emit(Opcode::OpHash, &[pairs.len()]);
+                Ok(())
+            }
+            Expression::Index { left, index } => {
+                self.compile_expression(left)?;
+                self.compile_expression(index)?;
+                self.emit(Opcode::OpIndex, &[]);
+                Ok(())
+            }
+            Expression::IndexAssign { left, index, value } => {
+                self.compile_expression(left)?;
+                self.compile_expression(index)?;
+                self.compile_expression(value)?;
+                self.emit(Opcode::OpSetIndex, &[]);
+                Ok(())
+            }
         }
     }
 

@@ -44,6 +44,17 @@ pub enum Expression {
         name: String,
         value: Box<Expression>,
     },
+
+    Hash(Vec<(Expression, Expression)>),
+    Index {
+        left: Box<Expression>,
+        index: Box<Expression>,
+    },
+    IndexAssign {
+        left: Box<Expression>,
+        index: Box<Expression>,
+        value: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone)]

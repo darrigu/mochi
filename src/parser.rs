@@ -99,6 +99,7 @@ impl Parser {
             Token::False => Some(Expression::Boolean(false)),
             Token::Bang | Token::Minus => self.parse_prefix_expression(),
             Token::LParen => self.parse_grouped_expression(),
+            Token::LBrace => self.parse_hash_literal(),
             Token::If => self.parse_if_expression(),
             Token::Fn => self.parse_function_expression(),
             Token::Do => self.parse_block_expression(),
@@ -128,6 +129,78 @@ impl Parser {
         }
 
         Some(left_expr)
+    }
+
+    fn parse_hash_literal(&mut self) -> Option<Expression> {
+        self.next_token();
+        let mut pairs = vec![];
+
+        if self.current_token == Token::RBrace {
+            return Some(Expression::Hash(pairs));
+        }
+
+        loop {
+            let key = self.parse_expression(Precedence::Lowest)?;
+
+            if !self.expect_peek(Token::Colon) {
+                self.report_error_with_hint(
+                    "Expected ':'".to_string(),
+                    "Use 'key: value' inside objects".to_string(),
+                );
+                return None;
+            }
+            self.next_token();
+            let value = self.parse_expression(Precedence::Lowest)?;
+            pairs.push((key, value));
+
+            if self.peek_token == Token::Comma {
+                self.next_token();
+                self.next_token();
+                if self.current_token == Token::RBrace {
+                    break;
+                }
+            } else if self.peek_token == Token::RBrace {
+                self.next_token();
+                break;
+            } else {
+                self.report_error_with_hint(
+                    format!("Expected ',' or '}}', got {:?}", self.peek_token),
+                    "Separate object properties with commas".to_string(),
+                );
+                return None;
+            }
+        }
+        Some(Expression::Hash(pairs))
+    }
+
+    fn parse_index_expression(&mut self, left: Expression) -> Option<Expression> {
+        self.next_token();
+        let index = self.parse_expression(Precedence::Lowest)?;
+        if !self.expect_peek(Token::RBracket) {
+            return None;
+        }
+        Some(Expression::Index {
+            left: Box::new(left),
+            index: Box::new(index),
+        })
+    }
+
+    fn parse_dot_expression(&mut self, left: Expression) -> Option<Expression> {
+        self.next_token();
+        let name = match &self.current_token {
+            Token::Ident(name) => name.clone(),
+            _ => {
+                self.report_error_with_hint(
+                    "Expected property name after '.'".to_string(),
+                    "Use identifiers like 'obj.name'".to_string(),
+                );
+                return None;
+            }
+        };
+        Some(Expression::Index {
+            left: Box::new(left),
+            index: Box::new(Expression::StringLiteral(name)),
+        })
     }
 
     fn parse_let_expression(&mut self) -> Option<Expression> {
@@ -421,21 +494,37 @@ impl Parser {
             return self.parse_call_expression(left);
         }
 
+        if self.current_token == Token::LBracket {
+            return self.parse_index_expression(left);
+        }
+        if self.current_token == Token::Dot {
+            return self.parse_dot_expression(left);
+        }
         if self.current_token == Token::Assign {
             self.next_token();
             let value = self.parse_expression(Precedence::Lowest)?;
 
-            if let Expression::Identifier(name) = left {
-                return Some(Expression::Assign {
-                    name,
-                    value: Box::new(value),
-                });
-            } else {
-                self.report_error_with_hint(
-                    "Invalid assignment target".to_string(),
-                    "You can only assign values to variables, e.g. 'x = 10'".to_string(),
-                );
-                return None;
+            match left {
+                Expression::Identifier(name) => {
+                    return Some(Expression::Assign {
+                        name,
+                        value: Box::new(value),
+                    });
+                }
+                Expression::Index { left: obj, index } => {
+                    return Some(Expression::IndexAssign {
+                        left: obj,
+                        index,
+                        value: Box::new(value),
+                    });
+                }
+                _ => {
+                    self.report_error_with_hint(
+                        "Invalid assignment target".to_string(),
+                        "You can only assign values to variables or object properties".to_string(),
+                    );
+                    return None;
+                }
             }
         }
 
@@ -469,7 +558,7 @@ impl Parser {
             Token::Greater | Token::Less => Precedence::LessGreater,
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Star | Token::Slash => Precedence::Product,
-            Token::LParen => Precedence::Call,
+            Token::LParen | Token::LBracket | Token::Dot => Precedence::Call,
             Token::Assign => Precedence::Assign,
             _ => Precedence::Lowest,
         }
@@ -488,6 +577,8 @@ impl Parser {
                 | Token::Greater
                 | Token::LParen
                 | Token::Assign
+                | Token::LBracket
+                | Token::Dot
         )
     }
 

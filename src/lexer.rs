@@ -27,8 +27,11 @@ pub enum Token {
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Comma,
     Dot,
+    Colon,
     Illegal(char),
     EOF,
 }
@@ -89,8 +92,11 @@ impl Lexer {
             ')' => Token::RParen,
             '{' => Token::LBrace,
             '}' => Token::RBrace,
+            '[' => Token::LBracket,
+            ']' => Token::RBracket,
             ',' => Token::Comma,
             '.' => Token::Dot,
+            ':' => Token::Colon,
             '>' => Token::Greater,
             '<' => Token::Less,
             '=' => {
