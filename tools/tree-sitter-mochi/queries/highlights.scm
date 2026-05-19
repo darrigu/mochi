@@ -9,9 +9,9 @@
   "const"
 ] @keyword
 
-(number) @number
+(number) @constant.numeric
 (string) @string
-(boolean) @boolean
+(boolean) @constant.builtin.boolean
 
 (comment) @comment
 
