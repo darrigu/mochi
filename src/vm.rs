@@ -297,6 +297,7 @@ impl VM {
     fn execute_binary_operation(&mut self, op: Opcode) -> Result<(), String> {
         let right = self.pop();
         let left = self.pop();
+
         if let (Object::Number(l), Object::Number(r)) = (&left, &right) {
             let result = match op {
                 Opcode::OpAdd => l + r,
@@ -307,6 +308,13 @@ impl VM {
             };
             return self.push(Object::Number(result));
         }
+
+        if let (Object::String(l), Object::String(r)) = (&left, &right) {
+            if op == Opcode::OpAdd {
+                return self.push(Object::String(format!("{}{}", l, r)));
+            }
+        }
+
         Err("Unsupported types for binary operation".into())
     }
 
