@@ -1,0 +1,73 @@
+const WIDTH = 100
+const ITERATIONS = 100
+
+fn build_row_string(board, i, current_str) do
+    if i == WIDTH do
+        return current_str
+    end
+    
+    let char = if board[i] == 1 "█" else " "
+    return build_row_string(board, i + 1, current_str + char)
+end
+
+fn print_board(board) do
+    let row_str = build_row_string(board, 0, "")
+    print(row_str)
+end
+
+fn next_cell(board, i) do
+    let left = if i > 0 board[i - 1] else 0
+    let mid = board[i]
+    let right = if i < WIDTH - 1 board[i + 1] else 0
+
+    if left == 1 do
+        if mid == 1 do
+            if right == 1 0 else 1
+        else
+            if right == 1 1 else 0
+        end
+    else
+        if mid == 1 do
+            if right == 1 1 else 1
+        else
+            if right == 1 1 else 0
+        end
+    end
+end
+
+fn compute_next_row(board, next_board, i) do
+    if i == WIDTH do
+        return next_board
+    end
+    
+    next_board[i] = next_cell(board, i)
+    return compute_next_row(board, next_board, i + 1)
+end
+
+fn run_rule_110(board, iteration) do
+    if iteration == ITERATIONS do
+        return 0
+    end
+
+    print_board(board)
+
+    let next_board = []
+    compute_next_row(board, next_board, 0)
+    
+    return run_rule_110(next_board, iteration + 1)
+end
+
+fn init_board(board, i) do
+    if i == WIDTH do
+        return board
+    end
+    
+    board[i] = if i == WIDTH - 2 1 else 0
+    return init_board(board, i + 1)
+end
+
+let starting_board = []
+init_board(starting_board, 0)
+
+print("Generating Rule 110...")
+run_rule_110(starting_board, 0)
