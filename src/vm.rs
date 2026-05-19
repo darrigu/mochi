@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::code::Opcode;
 use crate::compiler::Bytecode;
 use crate::object::Object;
@@ -180,9 +183,7 @@ impl VM {
                     let array = self.stack[start..self.sp].to_vec();
                     self.sp = start;
 
-                    self.push(Object::Array(std::rc::Rc::new(std::cell::RefCell::new(
-                        array,
-                    ))))?;
+                    self.push(Object::Array(Rc::new(RefCell::new(array))))?;
                 }
                 Opcode::OpHash => {
                     let num_pairs = read_u16(&mut frame);
@@ -196,16 +197,13 @@ impl VM {
 
                     for i in (0..temp.len()).step_by(2) {
                         let key_str = match &temp[i] {
-                            Object::String(s) => s.clone(),
-                            Object::Atom(s) => s.clone(),
+                            Object::String(s) | Object::Atom(s) => s.clone(),
                             other => format!("{:?}", other),
                         };
                         hash.insert(key_str, temp[i + 1].clone());
                     }
 
-                    self.push(Object::Hash(std::rc::Rc::new(std::cell::RefCell::new(
-                        hash,
-                    ))))?;
+                    self.push(Object::Hash(Rc::new(RefCell::new(hash))))?;
                 }
                 Opcode::OpIndex => {
                     let index = self.pop();
@@ -214,7 +212,7 @@ impl VM {
                     match left {
                         Object::Hash(hash) => {
                             let key_str = match index {
-                                Object::String(s) => s,
+                                Object::String(s) | Object::Atom(s) => s.clone(),
                                 other => format!("{:?}", other),
                             };
                             let val = hash
@@ -248,7 +246,7 @@ impl VM {
                     match left {
                         Object::Hash(hash) => {
                             let key_str = match index {
-                                Object::String(s) => s,
+                                Object::String(s) | Object::Atom(s) => s.clone(),
                                 other => format!("{:?}", other),
                             };
                             hash.borrow_mut().insert(key_str, value.clone());
@@ -326,50 +324,38 @@ impl VM {
         let right = self.pop();
         let left = self.pop();
 
-        let to_atom = |b: bool| {
-            Object::Atom(if b {
-                "true".to_string()
-            } else {
-                "false".to_string()
-            })
-        };
+        let mut result = false;
 
         if let (Object::Number(l), Object::Number(r)) = (&left, &right) {
-            let result = match op {
+            result = match op {
                 Opcode::OpEqual => l == r,
                 Opcode::OpNotEqual => l != r,
                 Opcode::OpGreater => l > r,
                 Opcode::OpLess => l < r,
                 _ => unreachable!(),
             };
-            return self.push(to_atom(result));
-        }
-
-        if let (Object::Atom(l), Object::Atom(r)) = (&left, &right) {
-            let result = match op {
+        } else if let (Object::Atom(l), Object::Atom(r)) = (&left, &right) {
+            result = match op {
                 Opcode::OpEqual => l == r,
                 Opcode::OpNotEqual => l != r,
-                _ => return Err("Only == and != are supported for atoms".into()),
+                _ => return Err("Unsupported atom operation".into()),
             };
-            return self.push(to_atom(result));
-        }
-
-        if let (Object::String(l), Object::String(r)) = (&left, &right) {
-            let result = match op {
+        } else if let (Object::String(l), Object::String(r)) = (&left, &right) {
+            result = match op {
                 Opcode::OpEqual => l == r,
                 Opcode::OpNotEqual => l != r,
-                _ => return Err("Only == and != are supported for strings".into()),
+                _ => return Err("Unsupported string operation".into()),
             };
-            return self.push(to_atom(result));
-        }
-
-        if op == Opcode::OpEqual {
-            return self.push(to_atom(false));
         } else if op == Opcode::OpNotEqual {
-            return self.push(to_atom(true));
+            result = true;
         }
 
-        Err("Unsupported types for comparison".into())
+        let obj = if result {
+            Object::Atom("true".to_string())
+        } else {
+            Object::Atom("false".to_string())
+        };
+        self.push(obj)
     }
 
     #[inline]
@@ -385,22 +371,18 @@ impl VM {
     fn execute_bang_operator(&mut self) -> Result<(), String> {
         let obj = self.pop();
         let is_truthy = self.is_truthy(&obj);
-        self.push(Object::Atom(if is_truthy {
-            "false".to_string()
+        let obj = if is_truthy {
+            Object::Atom("false".to_string())
         } else {
-            "true".to_string()
-        }))
+            Object::Atom("true".to_string())
+        };
+        self.push(obj)
     }
 
     #[inline]
     fn is_truthy(&self, obj: &Object) -> bool {
         match obj {
-            Object::Atom(s) => {
-                if s == "false" || s == "null" {
-                    return false;
-                }
-                true
-            }
+            Object::Atom(s) => s.as_str() != "false" && s.as_str() != "null",
             _ => true,
         }
     }

@@ -136,8 +136,7 @@ impl Compiler {
         match expr {
             Expression::Identifier(name) => self.compile_identifier(name),
             Expression::StringLiteral(val) => {
-                let pos = self.add_constant(Object::String(val.clone()));
-                self.emit(Opcode::OpConstant, &[pos]);
+                self.emit_string(val);
                 Ok(())
             }
             Expression::Atom(name) => {
@@ -414,14 +413,21 @@ impl Compiler {
         pos
     }
 
-    fn emit_atom(&mut self, name: &str) {
-        let sym = Object::Atom(name.to_string());
-
-        let pos = match self.constants.iter().position(|c| *c == sym) {
+    fn emit_string(&mut self, value: &str) {
+        let obj = Object::String(value.to_string());
+        let pos = match self.constants.iter().position(|c| *c == obj) {
             Some(idx) => idx,
-            None => self.add_constant(sym),
+            None => self.add_constant(obj),
         };
+        self.emit(Opcode::OpConstant, &[pos]);
+    }
 
+    fn emit_atom(&mut self, name: &str) {
+        let atom = Object::Atom(name.to_string());
+        let pos = match self.constants.iter().position(|c| *c == atom) {
+            Some(idx) => idx,
+            None => self.add_constant(atom),
+        };
         self.emit(Opcode::OpConstant, &[pos]);
     }
 
