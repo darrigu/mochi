@@ -496,6 +496,34 @@ mod tests {
     }
 
     #[test]
+    fn test_arrays() {
+        test_script("let list = [10, 20, 30] list[1]", Object::Number(20.0));
+        test_script(
+            "let list = [10 + 10, 20 * 2] list[0] + list[1]",
+            Object::Number(60.0),
+        );
+
+        test_script("let list = [1, 2] list[5]", Object::Null);
+
+        let input = "
+            let data = [{ value: 10 }, [1, 2, 99]]
+            data[0].value + data[1][2]
+        ";
+        test_script(input, Object::Number(109.0));
+
+        let input2 = "
+            let original = [1, 2, 3]
+            let reference = original
+            
+            reference[0] = 100
+            reference[3] = 400
+            
+            original[0] + original[3]
+        ";
+        test_script(input2, Object::Number(500.0));
+    }
+
+    #[test]
     fn test_objects_and_mutability() {
         test_script(
             "let obj = { x: 10, y: 20 } obj.x + obj.y",

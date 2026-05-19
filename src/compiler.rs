@@ -181,6 +181,13 @@ impl Compiler {
                 self.emit(Opcode::OpReturnValue, &[]);
                 Ok(())
             }
+            Expression::Array(elements) => {
+                for el in elements.iter() {
+                    self.compile_expression(el)?;
+                }
+                self.emit(Opcode::OpArray, &[elements.len()]);
+                Ok(())
+            }
             Expression::Hash(pairs) => {
                 for (key, val) in pairs {
                     match key {

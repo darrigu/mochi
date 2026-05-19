@@ -4,6 +4,7 @@ pub enum Expression {
     Number(f64),
     StringLiteral(String),
     Boolean(bool),
+    Array(Vec<Expression>),
 
     Prefix {
         operator: String,

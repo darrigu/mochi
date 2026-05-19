@@ -25,6 +25,7 @@ pub enum Opcode {
     OpGetFree,
     OpSetFree,
     OpClosure,
+    OpArray,
     OpHash,
     OpIndex,
     OpSetIndex,
@@ -32,7 +33,7 @@ pub enum Opcode {
 
 impl From<u8> for Opcode {
     fn from(val: u8) -> Self {
-        if val <= 28 {
+        if val <= 29 {
             unsafe { std::mem::transmute(val) }
         } else {
             panic!("Unknown Opcode: {}", val)
@@ -47,6 +48,7 @@ pub fn make(op: Opcode, operands: &[usize]) -> Vec<u8> {
         | Opcode::OpGetGlobal
         | Opcode::OpJumpNotTruthy
         | Opcode::OpJump
+        | Opcode::OpArray
         | Opcode::OpHash => {
             let mut instruction = Vec::with_capacity(3);
             instruction.push(op as u8);

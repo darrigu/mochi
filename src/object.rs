@@ -7,6 +7,7 @@ pub enum Object {
     Number(f64),
     Boolean(bool),
     String(String),
+    Array(Rc<RefCell<Vec<Object>>>),
     Hash(Rc<RefCell<HashMap<String, Object>>>),
     CompiledFunction {
         instructions: Vec<u8>,
@@ -34,6 +35,11 @@ impl std::fmt::Debug for Object {
             Object::Number(n) => write!(f, "{}", n),
             Object::Boolean(b) => write!(f, "{}", b),
             Object::String(s) => write!(f, "\"{}\"", s),
+            Object::Array(arr) => {
+                let list = arr.borrow();
+                let items: Vec<String> = list.iter().map(|item| format!("{:?}", item)).collect();
+                write!(f, "[{}]", items.join(", "))
+            }
             Object::Hash(h) => {
                 let map = h.borrow();
                 let pairs: Vec<String> =

@@ -99,10 +99,11 @@ impl Parser {
             Token::False => Some(Expression::Boolean(false)),
             Token::Bang | Token::Minus => self.parse_prefix_expression(),
             Token::LParen => self.parse_grouped_expression(),
-            Token::LBrace => self.parse_hash_literal(),
             Token::If => self.parse_if_expression(),
             Token::Fn => self.parse_function_expression(),
             Token::Do => self.parse_block_expression(),
+            Token::LBracket => self.parse_array_literal(),
+            Token::LBrace => self.parse_hash_literal(),
             Token::Let => self.parse_let_expression(),
             Token::Const => self.parse_const_expression(),
             Token::Return => self.parse_return_expression(),
@@ -129,6 +130,29 @@ impl Parser {
         }
 
         Some(left_expr)
+    }
+
+    fn parse_array_literal(&mut self) -> Option<Expression> {
+        let mut elements = vec![];
+
+        if self.peek_token == Token::RBracket {
+            self.next_token();
+            return Some(Expression::Array(elements));
+        }
+
+        self.next_token();
+        elements.push(self.parse_expression(Precedence::Lowest)?);
+
+        while self.peek_token == Token::Comma {
+            self.next_token();
+            self.next_token();
+            elements.push(self.parse_expression(Precedence::Lowest)?);
+        }
+
+        if !self.expect_peek(Token::RBracket) {
+            return None;
+        }
+        Some(Expression::Array(elements))
     }
 
     fn parse_hash_literal(&mut self) -> Option<Expression> {

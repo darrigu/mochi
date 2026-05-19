@@ -173,6 +173,17 @@ impl VM {
                     frame = self.frames.pop().unwrap();
                 }
 
+                Opcode::OpArray => {
+                    let num_elements = read_u16(&mut frame);
+
+                    let start = self.sp - num_elements;
+                    let array = self.stack[start..self.sp].to_vec();
+                    self.sp = start;
+
+                    self.push(Object::Array(std::rc::Rc::new(std::cell::RefCell::new(
+                        array,
+                    ))))?;
+                }
                 Opcode::OpHash => {
                     let num_pairs = read_u16(&mut frame);
                     let mut hash = std::collections::HashMap::new();
@@ -198,15 +209,30 @@ impl VM {
                 Opcode::OpIndex => {
                     let index = self.pop();
                     let left = self.pop();
-                    if let Object::Hash(hash) = left {
-                        let key_str = match index {
-                            Object::String(s) => s,
-                            other => format!("{:?}", other),
-                        };
-                        let val = hash.borrow().get(&key_str).cloned().unwrap_or(Object::Null);
-                        self.push(val)?;
-                    } else {
-                        return Err("Property access only supported on objects".into());
+
+                    match left {
+                        Object::Hash(hash) => {
+                            let key_str = match index {
+                                Object::String(s) => s,
+                                other => format!("{:?}", other),
+                            };
+                            let val = hash.borrow().get(&key_str).cloned().unwrap_or(Object::Null);
+                            self.push(val)?;
+                        }
+                        Object::Array(arr) => {
+                            if let Object::Number(idx) = index {
+                                let i = idx as usize;
+                                let val = if idx >= 0.0 && i < arr.borrow().len() {
+                                    arr.borrow()[i].clone()
+                                } else {
+                                    Object::Null
+                                };
+                                self.push(val)?;
+                            } else {
+                                return Err("Array index must be a number".into());
+                            }
+                        }
+                        _ => return Err("Index operator not supported on this type".into()),
                     }
                 }
                 Opcode::OpSetIndex => {
@@ -214,15 +240,36 @@ impl VM {
                     let index = self.pop();
                     let left = self.pop();
 
-                    if let Object::Hash(hash) = left {
-                        let key_str = match index {
-                            Object::String(s) => s,
-                            other => format!("{:?}", other),
-                        };
-                        hash.borrow_mut().insert(key_str, value.clone());
-                        self.push(value)?;
-                    } else {
-                        return Err("Property assignment only supported on objects".into());
+                    match left {
+                        Object::Hash(hash) => {
+                            let key_str = match index {
+                                Object::String(s) => s,
+                                other => format!("{:?}", other),
+                            };
+                            hash.borrow_mut().insert(key_str, value.clone());
+                            self.push(value)?;
+                        }
+                        Object::Array(arr) => {
+                            if let Object::Number(idx) = index {
+                                if idx < 0.0 || idx.fract() != 0.0 {
+                                    return Err("Array index must be a positive integer".into());
+                                }
+                                let i = idx as usize;
+                                let mut array = arr.borrow_mut();
+
+                                if i < array.len() {
+                                    array[i] = value.clone();
+                                } else if i == array.len() {
+                                    array.push(value.clone());
+                                } else {
+                                    return Err("Array index out of bounds".into());
+                                }
+                                self.push(value)?;
+                            } else {
+                                return Err("Array index must be a number".into());
+                            }
+                        }
+                        _ => return Err("Property assignment not supported on this type".into()),
                     }
                 }
 
