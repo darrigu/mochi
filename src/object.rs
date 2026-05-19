@@ -1,4 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
+
+use indexmap::IndexMap;
 
 #[derive(Clone, PartialEq)]
 #[allow(unpredictable_function_pointer_comparisons)]
@@ -7,7 +9,7 @@ pub enum Object {
     String(String),
     Atom(String),
     Array(Rc<RefCell<Vec<Object>>>),
-    Hash(Rc<RefCell<HashMap<String, Object>>>),
+    Hash(Rc<RefCell<IndexMap<String, Object>>>),
     CompiledFunction {
         instructions: Vec<u8>,
         constants: Vec<Object>,

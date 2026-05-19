@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
+
 use crate::code::Opcode;
 use crate::compiler::Bytecode;
 use crate::object::Object;
@@ -187,7 +189,7 @@ impl VM {
                 }
                 Opcode::OpHash => {
                     let num_pairs = read_u16(&mut frame);
-                    let mut hash = std::collections::HashMap::new();
+                    let mut hash = IndexMap::new();
 
                     let mut temp = Vec::with_capacity(num_pairs * 2);
                     for _ in 0..(num_pairs * 2) {
