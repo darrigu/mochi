@@ -694,7 +694,7 @@
           "name": "key",
           "content": {
             "type": "SYMBOL",
-            "name": "_expression"
+            "name": "identifier"
           }
         },
         {

@@ -51,7 +51,7 @@ pub enum Expression {
         value: Box<Expression>,
     },
 
-    Hash(Vec<(Expression, Expression)>),
+    Hash(Vec<(String, Expression)>),
     Index {
         left: Box<Expression>,
         index: Box<Expression>,

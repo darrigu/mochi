@@ -182,10 +182,7 @@ impl Compiler {
             }
             Expression::Hash(pairs) => {
                 for (key, val) in pairs {
-                    match key {
-                        Expression::Identifier(name) => self.emit_atom(name),
-                        _ => self.compile_expression(key)?,
-                    }
+                    self.emit_atom(key);
                     self.compile_expression(val)?;
                 }
                 self.emit(Opcode::OpHash, &[pairs.len()]);

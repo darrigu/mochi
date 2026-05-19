@@ -147,7 +147,7 @@ module.exports = grammar({
     ),
 
     hash_pair: $ => seq(
-      field('key', $._expression),
+      field('key', $.identifier),
       ':',
       field('value', $._expression)
     ),

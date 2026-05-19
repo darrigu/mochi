@@ -30,7 +30,6 @@ pub struct Parser {
     peek_line: usize,
     peek_col: usize,
     pub errors: Vec<Diagnostic>,
-    pub is_parsing_hash_key: bool,
 }
 
 impl Parser {
@@ -46,7 +45,6 @@ impl Parser {
             peek_line,
             peek_col,
             errors: vec![],
-            is_parsing_hash_key: false,
         }
     }
 
@@ -182,9 +180,20 @@ impl Parser {
         }
 
         loop {
-            self.is_parsing_hash_key = true;
-            let key = self.parse_expression(Precedence::Lowest)?;
-            self.is_parsing_hash_key = false;
+            let key = match &self.current_token {
+                Token::Ident(name) => name.clone(),
+                _ => {
+                    self.report_error_with_hint(
+                        format!(
+                            "Expected identifier for object key, got {:?}",
+                            self.current_token
+                        ),
+                        "Object keys can only be unquoted identifiers, e.g., '{ x: 10 }'"
+                            .to_string(),
+                    );
+                    return None;
+                }
+            };
 
             if !self.expect_peek(Token::Colon) {
                 self.report_error_with_hint(
@@ -647,7 +656,8 @@ impl Parser {
                 | Token::Assign
                 | Token::LBracket
                 | Token::Dot
-        ) || (self.peek_token == Token::Colon && !self.is_parsing_hash_key)
+                | Token::Colon
+        )
     }
 
     fn current_precedence(&self) -> Precedence {
