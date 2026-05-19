@@ -570,4 +570,28 @@ mod tests {
         ";
         test_script(input, Object::Number(100.0));
     }
+
+    #[test]
+    fn test_method_calls() {
+        let input = "
+            const user = {
+                points: 0,
+                bump: fn(self) self.points = self.points + 1
+            }
+            user:bump()
+            user:bump()
+            user.points
+        ";
+        test_script(input, Object::Number(2.0));
+
+        let input2 = "
+            const bank = {
+                balance: 100,
+                deposit: fn(self, amount) self.balance = self.balance + amount
+            }
+            bank:deposit(50)
+            bank.balance
+        ";
+        test_script(input2, Object::Number(150.0));
+    }
 }

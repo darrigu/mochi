@@ -30,6 +30,11 @@ pub enum Expression {
         function: Box<Expression>,
         arguments: Vec<Expression>,
     },
+    MethodCall {
+        left: Box<Expression>,
+        method: String,
+        arguments: Vec<Expression>,
+    },
     Return(Box<Expression>),
     Block(Vec<Expression>),
 

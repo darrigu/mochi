@@ -276,6 +276,31 @@ impl VM {
                     }
                 }
 
+                Opcode::OpGetMethod => {
+                    let const_idx = read_u16(&mut frame);
+                    let method_name = frame.constants[const_idx].clone();
+
+                    let obj = self.pop();
+
+                    let func = match &obj {
+                        Object::Hash(hash) => {
+                            let key_str = match method_name {
+                                Object::String(s) | Object::Atom(s) => s,
+                                other => format!("{:?}", other),
+                            };
+                            hash.borrow()
+                                .get(&key_str)
+                                .cloned()
+                                .unwrap_or(Object::Atom("null".to_string()))
+                        }
+                        _ => return Err("Method calls only supported on objects".into()),
+                    };
+
+                    self.push(func)?;
+
+                    self.push(obj)?;
+                }
+
                 Opcode::OpAdd | Opcode::OpSub | Opcode::OpMul | Opcode::OpDiv => {
                     self.execute_binary_operation(op)?
                 }

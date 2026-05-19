@@ -27,6 +27,7 @@ pub enum Opcode {
     OpHash,
     OpIndex,
     OpSetIndex,
+    OpGetMethod,
 }
 
 impl From<u8> for Opcode {
@@ -47,7 +48,8 @@ pub fn make(op: Opcode, operands: &[usize]) -> Vec<u8> {
         | Opcode::OpJumpNotTruthy
         | Opcode::OpJump
         | Opcode::OpArray
-        | Opcode::OpHash => {
+        | Opcode::OpHash
+        | Opcode::OpGetMethod => {
             let mut instruction = Vec::with_capacity(3);
             instruction.push(op as u8);
             instruction.extend_from_slice(&(operands[0] as u16).to_be_bytes());

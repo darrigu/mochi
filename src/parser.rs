@@ -30,6 +30,7 @@ pub struct Parser {
     peek_line: usize,
     peek_col: usize,
     pub errors: Vec<Diagnostic>,
+    pub is_parsing_hash_key: bool,
 }
 
 impl Parser {
@@ -45,6 +46,7 @@ impl Parser {
             peek_line,
             peek_col,
             errors: vec![],
+            is_parsing_hash_key: false,
         }
     }
 
@@ -180,7 +182,9 @@ impl Parser {
         }
 
         loop {
+            self.is_parsing_hash_key = true;
             let key = self.parse_expression(Precedence::Lowest)?;
+            self.is_parsing_hash_key = false;
 
             if !self.expect_peek(Token::Colon) {
                 self.report_error_with_hint(
@@ -190,6 +194,7 @@ impl Parser {
                 return None;
             }
             self.next_token();
+
             let value = self.parse_expression(Precedence::Lowest)?;
             pairs.push((key, value));
 
@@ -533,12 +538,35 @@ impl Parser {
         if self.current_token == Token::LParen {
             return self.parse_call_expression(left);
         }
-
         if self.current_token == Token::LBracket {
             return self.parse_index_expression(left);
         }
         if self.current_token == Token::Dot {
             return self.parse_dot_expression(left);
+        }
+        if self.current_token == Token::Colon {
+            self.next_token();
+            let method = match &self.current_token {
+                Token::Ident(name) => name.clone(),
+                _ => {
+                    self.report_error_with_hint(
+                        "Expected method name after ':'".to_string(),
+                        "Method calls use the format object:method()".to_string(),
+                    );
+                    return None;
+                }
+            };
+
+            if !self.expect_peek(Token::LParen) {
+                return None;
+            }
+            let arguments = self.parse_call_arguments()?;
+
+            return Some(Expression::MethodCall {
+                left: Box::new(left),
+                method,
+                arguments,
+            });
         }
         if self.current_token == Token::Assign {
             self.next_token();
@@ -598,7 +626,7 @@ impl Parser {
             Token::Greater | Token::Less => Precedence::LessGreater,
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Star | Token::Slash => Precedence::Product,
-            Token::LParen | Token::LBracket | Token::Dot => Precedence::Call,
+            Token::LParen | Token::LBracket | Token::Dot | Token::Colon => Precedence::Call,
             Token::Assign => Precedence::Assign,
             _ => Precedence::Lowest,
         }
@@ -619,7 +647,7 @@ impl Parser {
                 | Token::Assign
                 | Token::LBracket
                 | Token::Dot
-        )
+        ) || (self.peek_token == Token::Colon && !self.is_parsing_hash_key)
     }
 
     fn current_precedence(&self) -> Precedence {

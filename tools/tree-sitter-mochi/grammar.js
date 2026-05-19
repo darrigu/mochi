@@ -18,7 +18,7 @@ module.exports = grammar({
   ],
 
   conflicts: $ => [
-    [$.if_expression, $.block_expression]
+    [$.if_expression, $.block_expression],
   ],
 
   rules: {
@@ -30,12 +30,14 @@ module.exports = grammar({
       $.identifier,
       $.number,
       $.string,
+      $.atom,
       $.let_expression,
       $.const_expression,
       $.assignment_expression,
       $.if_expression,
       $.function_expression,
       $.call_expression,
+      $.method_call_expression,
       $.unary_expression,
       $.binary_expression,
       $.block_expression,
@@ -44,7 +46,6 @@ module.exports = grammar({
       $.hash_literal,
       $.index_expression,
       $.dot_expression,
-      $.atom,
     ),
 
     let_expression: $ => prec.right(2, seq(
@@ -112,6 +113,14 @@ module.exports = grammar({
       ')'
     )),
 
+    method_call_expression: $ => prec(8, seq(
+      field('object', $._expression),
+      field('method', $.atom),
+      '(',
+      commaSep($._expression),
+      ')'
+    )),
+
     index_expression: $ => prec(8, seq(
       field('object', $._expression),
       '[',
@@ -168,11 +177,11 @@ module.exports = grammar({
     ),
 
     identifier: $ => SYMBOL,
-    
+
     number: $ => /\d+(\.\d+)?/,
-    
+
     string: $ => /"[^"]*"/,
-    
+
     atom: $ => token(seq(':', SYMBOL)),
   }
 });

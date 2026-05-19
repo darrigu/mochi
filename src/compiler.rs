@@ -204,6 +204,27 @@ impl Compiler {
                 self.emit(Opcode::OpSetIndex, &[]);
                 Ok(())
             }
+            Expression::MethodCall {
+                left,
+                method,
+                arguments,
+            } => {
+                self.compile_expression(left)?;
+
+                let atom = Object::Atom(method.clone());
+                let pos = match self.constants.iter().position(|c| *c == atom) {
+                    Some(idx) => idx,
+                    None => self.add_constant(atom),
+                };
+                self.emit(Opcode::OpGetMethod, &[pos]);
+
+                for arg in arguments {
+                    self.compile_expression(arg)?;
+                }
+
+                self.emit(Opcode::OpCall, &[arguments.len() + 1]);
+                Ok(())
+            }
         }
     }
 

@@ -34,6 +34,7 @@
 (function_expression name: (identifier) @function)
 
 (call_expression function: (identifier) @function.call)
+(method_call_expression method: (atom) @function.method)
 
 (let_expression name: (identifier) @variable)
 (const_expression name: (identifier) @variable)
