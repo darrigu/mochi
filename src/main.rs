@@ -44,14 +44,14 @@ fn compile_source(source: &str) -> Bytecode {
     let env = std::rc::Rc::new(std::cell::RefCell::new(type_checker::TypeEnv::new()));
     for expr in &program.expressions {
         if let Err(e) = checker.check(expr, &env) {
-            error_reporter::report_system_error("typechecker", &e);
+            error_reporter::report_errors(source, &[e]);
             process::exit(1);
         }
     }
 
     let mut compiler = Compiler::new();
     if let Err(e) = compiler.compile_program(&program) {
-        error_reporter::report_system_error("compiler", &e);
+        error_reporter::report_errors(source, &[e]);
         process::exit(1);
     }
 

@@ -1,4 +1,5 @@
 use crate::ast::{Expression, Program, TypeAnn};
+use crate::error_reporter::Diagnostic;
 use crate::lexer::{Lexer, Token};
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
@@ -11,14 +12,6 @@ pub enum Precedence {
     Product,
     Prefix,
     Call,
-}
-
-#[derive(Debug)]
-pub struct Diagnostic {
-    pub line: usize,
-    pub col: usize,
-    pub message: String,
-    pub hint: Option<String>,
 }
 
 pub struct Parser {
@@ -59,7 +52,21 @@ impl Parser {
         self.peek_col = next_col;
     }
 
-    fn report_error(&mut self, msg: String) {
+    fn report_error(&mut self) {
+        let msg = match self.current_token {
+            Token::Illegal(c) => format!("Illegal character '{}'", c),
+            Token::EOF => "Unexpected end of file".to_string(),
+            _ => format!("Unexpected token {:?}", self.current_token),
+        };
+        self.errors.push(Diagnostic {
+            line: self.cur_line,
+            col: self.cur_col,
+            message: msg,
+            hint: Some("Check for missing operators or mismatched parentheses".to_string()),
+        });
+    }
+
+    fn report_error_with_msg(&mut self, msg: String) {
         self.errors.push(Diagnostic {
             line: self.cur_line,
             col: self.cur_col,
@@ -77,6 +84,14 @@ impl Parser {
         });
     }
 
+    fn wrap(&self, expr: Option<Expression>, line: usize, col: usize) -> Option<Expression> {
+        expr.map(|e| Expression::Loc {
+            line,
+            col,
+            expr: Box::new(e),
+        })
+    }
+
     pub fn parse_program(&mut self) -> Program {
         let mut program = Program {
             expressions: vec![],
@@ -91,6 +106,8 @@ impl Parser {
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         let mut left_expr = match &self.current_token {
             Token::Ident(name) => Some(Expression::Identifier(name.clone())),
             Token::Number(val) => Some(Expression::Number(*val)),
@@ -110,18 +127,16 @@ impl Parser {
             Token::While => self.parse_while_expression(),
             Token::For => self.parse_for_expression(),
             _ => {
-                let msg = match self.current_token {
-                    Token::Illegal(c) => format!("Illegal character '{}'", c),
-                    Token::EOF => "Unexpected end of file".to_string(),
-                    _ => format!("Unexpected token {:?}", self.current_token),
-                };
-                self.report_error_with_hint(
-                    msg,
-                    "Check for missing operators or mismatched parentheses".to_string(),
-                );
+                self.report_error();
                 None
             }
         }?;
+
+        if let Some(Token::Ident(_) | Token::Number(_) | Token::StringLiteral(_)) =
+            Some(&self.current_token)
+        {
+            left_expr = self.wrap(Some(left_expr), line, col)?;
+        }
 
         while self.peek_token != Token::EOF && precedence < self.peek_precedence() {
             if !self.peek_is_infix_operator() {
@@ -135,9 +150,11 @@ impl Parser {
     }
 
     fn parse_atom_literal(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
 
-        if let Token::Ident(name) = &self.current_token {
+        let expr = if let Token::Ident(name) = &self.current_token {
             Some(Expression::Atom(name.clone()))
         } else {
             self.report_error_with_hint(
@@ -148,15 +165,18 @@ impl Parser {
                 "Atoms must be valid names".to_string(),
             );
             None
-        }
+        };
+        self.wrap(expr, line, col)
     }
 
     fn parse_array_literal(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         let mut elements = vec![];
 
         if self.peek_token == Token::RBracket {
             self.next_token();
-            return Some(Expression::Array(elements));
+            return self.wrap(Some(Expression::Array(elements)), line, col);
         }
 
         self.next_token();
@@ -171,15 +191,17 @@ impl Parser {
         if !self.expect_peek(Token::RBracket) {
             return None;
         }
-        Some(Expression::Array(elements))
+        self.wrap(Some(Expression::Array(elements)), line, col)
     }
 
     fn parse_hash_literal(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let mut pairs = vec![];
 
         if self.current_token == Token::RBrace {
-            return Some(Expression::Hash(pairs));
+            return self.wrap(Some(Expression::Hash(pairs)), line, col);
         }
 
         loop {
@@ -227,22 +249,27 @@ impl Parser {
                 return None;
             }
         }
-        Some(Expression::Hash(pairs))
+        self.wrap(Some(Expression::Hash(pairs)), line, col)
     }
 
     fn parse_index_expression(&mut self, left: Expression) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let index = self.parse_expression(Precedence::Lowest)?;
         if !self.expect_peek(Token::RBracket) {
             return None;
         }
-        Some(Expression::Index {
+        let expr = Some(Expression::Index {
             left: Box::new(left),
             index: Box::new(index),
-        })
+        });
+        self.wrap(expr, line, col)
     }
 
     fn parse_dot_expression(&mut self, left: Expression) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let name = match &self.current_token {
             Token::Ident(name) => name.clone(),
@@ -254,10 +281,11 @@ impl Parser {
                 return None;
             }
         };
-        Some(Expression::Index {
+        let expr = Some(Expression::Index {
             left: Box::new(left),
-            index: Box::new(Expression::Atom(name)),
-        })
+            index: Box::new(self.wrap(Some(Expression::Atom(name)), line, col)?),
+        });
+        self.wrap(expr, line, col)
     }
 
     fn parse_type_annotation(&mut self) -> Option<TypeAnn> {
@@ -273,7 +301,7 @@ impl Parser {
                 "Atom" => Some(TypeAnn::Atom),
                 "Any" => Some(TypeAnn::Any),
                 _ => {
-                    self.report_error(format!("Unknown type annotation: '{}'", name));
+                    self.report_error_with_msg(format!("Unknown type annotation: '{}'", name));
                     None
                 }
             },
@@ -296,7 +324,9 @@ impl Parser {
                     let key = match &self.current_token {
                         Token::Ident(name) => name.clone(),
                         _ => {
-                            self.report_error("Expected identifier for type field".to_string());
+                            self.report_error_with_msg(
+                                "Expected identifier for type field".to_string(),
+                            );
                             return None;
                         }
                     };
@@ -318,7 +348,7 @@ impl Parser {
                         self.next_token();
                         break;
                     } else {
-                        self.report_error("Expected ',' or '}' in hash type".to_string());
+                        self.report_error_with_msg("Expected ',' or '}' in hash type".to_string());
                         return None;
                     }
                 }
@@ -370,7 +400,7 @@ impl Parser {
                 })
             }
             _ => {
-                self.report_error(format!(
+                self.report_error_with_msg(format!(
                     "Expected type annotation, got {:?}",
                     self.current_token
                 ));
@@ -380,11 +410,13 @@ impl Parser {
     }
 
     fn parse_let_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let name = match &self.current_token {
             Token::Ident(name) => name.clone(),
             _ => {
-                self.report_error(format!(
+                self.report_error_with_msg(format!(
                     "Expected variable name after 'let', got {:?}",
                     self.current_token
                 ));
@@ -408,19 +440,22 @@ impl Parser {
         self.next_token();
 
         let value = self.parse_expression(Precedence::Lowest)?;
-        Some(Expression::Let {
+        let expr = Some(Expression::Let {
             name,
             type_ann,
             value: Box::new(value),
-        })
+        });
+        self.wrap(expr, line, col)
     }
 
     fn parse_const_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let name = match &self.current_token {
             Token::Ident(name) => name.clone(),
             _ => {
-                self.report_error(format!(
+                self.report_error_with_msg(format!(
                     "Expected constant name after 'const', got {:?}",
                     self.current_token
                 ));
@@ -444,17 +479,21 @@ impl Parser {
         self.next_token();
 
         let value = self.parse_expression(Precedence::Lowest)?;
-        Some(Expression::Const {
+        let expr = Some(Expression::Const {
             name,
             type_ann,
             value: Box::new(value),
-        })
+        });
+        self.wrap(expr, line, col)
     }
 
     fn parse_return_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let value = self.parse_expression(Precedence::Lowest)?;
-        Some(Expression::Return(Box::new(value)))
+        let expr = Some(Expression::Return(Box::new(value)));
+        self.wrap(expr, line, col)
     }
 
     fn parse_block_expressions(&mut self) -> Vec<Expression> {
@@ -472,6 +511,8 @@ impl Parser {
     }
 
     fn parse_block_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let exprs = self.parse_block_expressions();
 
@@ -485,10 +526,13 @@ impl Parser {
             );
             return None;
         }
-        Some(Expression::Block(exprs))
+        let expr = Some(Expression::Block(exprs));
+        self.wrap(expr, line, col)
     }
 
     fn parse_function_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         let mut name = None;
         if let Token::Ident(n) = &self.peek_token.clone() {
             self.next_token();
@@ -533,7 +577,7 @@ impl Parser {
             body,
         };
 
-        if let Some(n) = name {
+        let expr = if let Some(n) = name {
             Some(Expression::Const {
                 name: n,
                 type_ann: None,
@@ -541,7 +585,8 @@ impl Parser {
             })
         } else {
             Some(func)
-        }
+        };
+        self.wrap(expr, line, col)
     }
 
     fn parse_function_parameters(&mut self) -> Option<Vec<(String, Option<TypeAnn>)>> {
@@ -588,11 +633,14 @@ impl Parser {
     }
 
     fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         let arguments = self.parse_call_arguments()?;
-        Some(Expression::Call {
+        let expr = Some(Expression::Call {
             function: Box::new(function),
             arguments,
-        })
+        });
+        self.wrap(expr, line, col)
     }
 
     fn parse_call_arguments(&mut self) -> Option<Vec<Expression>> {
@@ -619,6 +667,8 @@ impl Parser {
     }
 
     fn parse_if_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
         let condition = self.parse_expression(Precedence::Lowest)?;
 
@@ -647,11 +697,12 @@ impl Parser {
                 return None;
             }
 
-            Some(Expression::If {
+            let expr = Some(Expression::If {
                 condition: Box::new(condition),
                 consequence: Box::new(consequence),
                 alternative,
-            })
+            });
+            self.wrap(expr, line, col)
         } else {
             self.next_token();
             let consequence = self.parse_expression(Precedence::Lowest)?;
@@ -669,103 +720,12 @@ impl Parser {
             self.next_token();
             let alternative = self.parse_expression(Precedence::Lowest)?;
 
-            Some(Expression::If {
+            let expr = Some(Expression::If {
                 condition: Box::new(condition),
                 consequence: Box::new(consequence),
                 alternative: Some(Box::new(alternative)),
-            })
-        }
-    }
-
-    fn parse_loop_body(&mut self) -> Option<Expression> {
-        if self.peek_token == Token::Do {
-            self.next_token();
-            self.next_token();
-            let exprs = self.parse_block_expressions();
-            if self.current_token != Token::End {
-                self.report_error_with_hint(
-                    format!(
-                        "Expected 'end' to close loop body, got {:?}",
-                        self.current_token
-                    ),
-                    "Loop bodies starting with 'do' must explicitly end with 'end'".to_string(),
-                );
-                return None;
-            }
-            Some(Expression::Block(exprs))
-        } else {
-            self.next_token();
-            self.parse_expression(Precedence::Lowest)
-        }
-    }
-
-    fn parse_loop_expression(&mut self) -> Option<Expression> {
-        let body = self.parse_loop_body()?;
-        Some(Expression::Loop {
-            body: Box::new(body),
-        })
-    }
-
-    fn parse_while_expression(&mut self) -> Option<Expression> {
-        self.next_token();
-        let condition = self.parse_expression(Precedence::Lowest)?;
-        let body = self.parse_loop_body()?;
-        Some(Expression::While {
-            condition: Box::new(condition),
-            body: Box::new(body),
-        })
-    }
-
-    fn parse_for_expression(&mut self) -> Option<Expression> {
-        self.next_token();
-
-        let first_id = match &self.current_token {
-            Token::Ident(name) => name.clone(),
-            _ => {
-                self.report_error("Expected identifier after 'for'".to_string());
-                return None;
-            }
-        };
-
-        if self.peek_token == Token::Comma {
-            self.next_token();
-            self.next_token();
-            let second_id = match &self.current_token {
-                Token::Ident(name) => name.clone(),
-                _ => {
-                    self.report_error("Expected second identifier after ',' in 'for'".to_string());
-                    return None;
-                }
-            };
-
-            if !self.expect_peek(Token::In) {
-                self.report_error("Expected 'in' after loop variables".to_string());
-                return None;
-            }
-            self.next_token();
-            let iterable = self.parse_expression(Precedence::Lowest)?;
-
-            let body = self.parse_loop_body()?;
-            Some(Expression::ForHash {
-                key: first_id,
-                value: second_id,
-                iterable: Box::new(iterable),
-                body: Box::new(body),
-            })
-        } else {
-            if !self.expect_peek(Token::In) {
-                self.report_error("Expected 'in' after loop variable".to_string());
-                return None;
-            }
-            self.next_token();
-            let iterable = self.parse_expression(Precedence::Lowest)?;
-
-            let body = self.parse_loop_body()?;
-            Some(Expression::For {
-                element: first_id,
-                iterable: Box::new(iterable),
-                body: Box::new(body),
-            })
+            });
+            self.wrap(expr, line, col)
         }
     }
 
@@ -779,6 +739,8 @@ impl Parser {
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         let operator = match &self.current_token {
             Token::Bang => "!",
             Token::Minus => "-",
@@ -788,13 +750,16 @@ impl Parser {
 
         self.next_token();
         let right = self.parse_expression(Precedence::Prefix)?;
-        Some(Expression::Prefix {
+        let expr = Some(Expression::Prefix {
             operator,
             right: Box::new(right),
-        })
+        });
+        self.wrap(expr, line, col)
     }
 
     fn parse_infix_expression(&mut self, left: Expression) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         if self.current_token == Token::LParen {
             return self.parse_call_expression(left);
         }
@@ -822,29 +787,33 @@ impl Parser {
             }
             let arguments = self.parse_call_arguments()?;
 
-            return Some(Expression::MethodCall {
+            let expr = Some(Expression::MethodCall {
                 left: Box::new(left),
                 method,
                 arguments,
             });
+            return self.wrap(expr, line, col);
         }
         if self.current_token == Token::Assign {
             self.next_token();
             let value = self.parse_expression(Precedence::Lowest)?;
 
-            match left {
+            let unwrapped_left = self.unwrap_loc(left);
+            match unwrapped_left {
                 Expression::Identifier(name) => {
-                    return Some(Expression::Assign {
+                    let expr = Some(Expression::Assign {
                         name,
                         value: Box::new(value),
                     });
+                    return self.wrap(expr, line, col);
                 }
                 Expression::Index { left: obj, index } => {
-                    return Some(Expression::IndexAssign {
+                    let expr = Some(Expression::IndexAssign {
                         left: obj,
                         index,
                         value: Box::new(value),
                     });
+                    return self.wrap(expr, line, col);
                 }
                 _ => {
                     self.report_error_with_hint(
@@ -873,11 +842,119 @@ impl Parser {
         self.next_token();
         let right = self.parse_expression(precedence)?;
 
-        Some(Expression::Infix {
+        let expr = Some(Expression::Infix {
             left: Box::new(left),
             operator,
             right: Box::new(right),
-        })
+        });
+        self.wrap(expr, line, col)
+    }
+
+    fn parse_loop_body(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        if self.peek_token == Token::Do {
+            self.next_token();
+            self.next_token();
+            let exprs = self.parse_block_expressions();
+            if self.current_token != Token::End {
+                self.report_error_with_hint(
+                    format!(
+                        "Expected 'end' to close loop body, got {:?}",
+                        self.current_token
+                    ),
+                    "Loop bodies starting with 'do' must explicitly end with 'end'".to_string(),
+                );
+                return None;
+            }
+            let expr = Some(Expression::Block(exprs));
+            self.wrap(expr, line, col)
+        } else {
+            self.next_token();
+            self.parse_expression(Precedence::Lowest)
+        }
+    }
+
+    fn parse_loop_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        let body = self.parse_loop_body()?;
+        let expr = Some(Expression::Loop {
+            body: Box::new(body),
+        });
+        self.wrap(expr, line, col)
+    }
+
+    fn parse_while_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        self.next_token();
+        let condition = self.parse_expression(Precedence::Lowest)?;
+        let body = self.parse_loop_body()?;
+        let expr = Some(Expression::While {
+            condition: Box::new(condition),
+            body: Box::new(body),
+        });
+        self.wrap(expr, line, col)
+    }
+
+    fn parse_for_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        self.next_token();
+
+        let first_id = match &self.current_token {
+            Token::Ident(name) => name.clone(),
+            _ => {
+                self.report_error_with_msg("Expected identifier after 'for'".to_string());
+                return None;
+            }
+        };
+
+        if self.peek_token == Token::Comma {
+            self.next_token();
+            self.next_token();
+            let second_id = match &self.current_token {
+                Token::Ident(name) => name.clone(),
+                _ => {
+                    self.report_error_with_msg(
+                        "Expected second identifier after ',' in 'for'".to_string(),
+                    );
+                    return None;
+                }
+            };
+
+            if !self.expect_peek(Token::In) {
+                self.report_error_with_msg("Expected 'in' after loop variables".to_string());
+                return None;
+            }
+            self.next_token();
+            let iterable = self.parse_expression(Precedence::Lowest)?;
+
+            let body = self.parse_loop_body()?;
+            let expr = Some(Expression::ForHash {
+                key: first_id,
+                value: second_id,
+                iterable: Box::new(iterable),
+                body: Box::new(body),
+            });
+            self.wrap(expr, line, col)
+        } else {
+            if !self.expect_peek(Token::In) {
+                self.report_error_with_msg("Expected 'in' after loop variable".to_string());
+                return None;
+            }
+            self.next_token();
+            let iterable = self.parse_expression(Precedence::Lowest)?;
+
+            let body = self.parse_loop_body()?;
+            let expr = Some(Expression::For {
+                element: first_id,
+                iterable: Box::new(iterable),
+                body: Box::new(body),
+            });
+            self.wrap(expr, line, col)
+        }
     }
 
     fn token_precedence(token: &Token) -> Precedence {
@@ -930,5 +1007,13 @@ impl Parser {
             );
             false
         }
+    }
+
+    fn unwrap_loc(&self, expr: Expression) -> Expression {
+        let mut current = expr;
+        while let Expression::Loc { expr: inner, .. } = current {
+            current = *inner;
+        }
+        current
     }
 }

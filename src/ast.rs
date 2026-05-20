@@ -96,6 +96,12 @@ pub enum Expression {
         index: Box<Expression>,
         value: Box<Expression>,
     },
+
+    Loc {
+        line: usize,
+        col: usize,
+        expr: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone)]

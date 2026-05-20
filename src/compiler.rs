@@ -1,7 +1,21 @@
 use crate::ast::{Expression, Program};
 use crate::code::{Opcode, make};
+use crate::error_reporter::Diagnostic;
 use crate::object::Object;
 use std::collections::HashMap;
+
+macro_rules! wrap_err {
+    ($self:expr, $res:expr) => {{
+        let line = $self.current_line;
+        let col = $self.current_col;
+        $res.map_err(|e| crate::error_reporter::Diagnostic {
+            line,
+            col,
+            message: e,
+            hint: None,
+        })
+    }};
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolScope {
@@ -100,6 +114,8 @@ pub struct Compiler {
     pub instructions: Vec<u8>,
     pub constants: Vec<Object>,
     pub symbol_table: SymbolTable,
+    pub current_line: usize,
+    pub current_col: usize,
 }
 
 impl Compiler {
@@ -108,6 +124,8 @@ impl Compiler {
             instructions: vec![],
             constants: vec![],
             symbol_table: SymbolTable::new(),
+            current_line: 1,
+            current_col: 1,
         }
     }
 
@@ -116,10 +134,21 @@ impl Compiler {
             instructions: vec![],
             constants: vec![],
             symbol_table: SymbolTable::new_enclosed(outer),
+            current_line: 1,
+            current_col: 1,
         }
     }
 
-    pub fn compile_program(&mut self, program: &Program) -> Result<(), String> {
+    fn err<T>(&self, msg: String) -> Result<T, Diagnostic> {
+        Err(Diagnostic {
+            line: self.current_line,
+            col: self.current_col,
+            message: msg,
+            hint: None,
+        })
+    }
+
+    pub fn compile_program(&mut self, program: &Program) -> Result<(), Diagnostic> {
         if program.expressions.is_empty() {
             return Ok(());
         }
@@ -132,7 +161,46 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_expression(&mut self, expr: &Expression) -> Result<(), String> {
+    fn emit_get(&mut self, symbol: &Symbol) {
+        match symbol.scope {
+            SymbolScope::Local => {
+                self.emit(Opcode::OpGetLocal, &[symbol.index]);
+            }
+            SymbolScope::Global => {
+                self.emit(Opcode::OpGetGlobal, &[symbol.index]);
+            }
+            SymbolScope::Free => {
+                self.emit(Opcode::OpGetFree, &[symbol.index]);
+            }
+        }
+    }
+
+    fn emit_set(&mut self, symbol: &Symbol) {
+        match symbol.scope {
+            SymbolScope::Local => {
+                self.emit(Opcode::OpSetLocal, &[symbol.index]);
+            }
+            SymbolScope::Global => {
+                self.emit(Opcode::OpSetGlobal, &[symbol.index]);
+            }
+            SymbolScope::Free => {
+                self.emit(Opcode::OpSetFree, &[symbol.index]);
+            }
+        }
+    }
+
+    fn compile_expression(&mut self, expr: &Expression) -> Result<(), Diagnostic> {
+        if let Expression::Loc {
+            line,
+            col,
+            expr: inner,
+        } = expr
+        {
+            self.current_line = *line;
+            self.current_col = *col;
+            return self.compile_expression(inner);
+        }
+
         match expr {
             Expression::Identifier(name) => self.compile_identifier(name),
             Expression::StringLiteral(val) => {
@@ -170,6 +238,70 @@ impl Compiler {
                 consequence,
                 alternative,
             } => self.compile_if(condition, consequence, alternative),
+            Expression::Let {
+                name,
+                type_ann: _,
+                value,
+            } => self.compile_binding(name, value, false),
+            Expression::Const {
+                name,
+                type_ann: _,
+                value,
+            } => self.compile_binding(name, value, true),
+            Expression::Return(expr) => {
+                self.compile_expression(expr)?;
+                self.emit(Opcode::OpReturnValue, &[]);
+                Ok(())
+            }
+            Expression::Array(elements) => {
+                for el in elements.iter() {
+                    self.compile_expression(el)?;
+                }
+                self.emit(Opcode::OpArray, &[elements.len()]);
+                Ok(())
+            }
+            Expression::Hash(pairs) => {
+                for (key, val) in pairs {
+                    self.emit_atom(key);
+                    self.compile_expression(val)?;
+                }
+                self.emit(Opcode::OpHash, &[pairs.len()]);
+                Ok(())
+            }
+            Expression::Index { left, index } => {
+                self.compile_expression(left)?;
+                self.compile_expression(index)?;
+                self.emit(Opcode::OpIndex, &[]);
+                Ok(())
+            }
+            Expression::IndexAssign { left, index, value } => {
+                self.compile_expression(left)?;
+                self.compile_expression(index)?;
+                self.compile_expression(value)?;
+                self.emit(Opcode::OpSetIndex, &[]);
+                Ok(())
+            }
+            Expression::MethodCall {
+                left,
+                method,
+                arguments,
+            } => {
+                self.compile_expression(left)?;
+
+                let atom = Object::Atom(method.clone());
+                let pos = match self.constants.iter().position(|c| *c == atom) {
+                    Some(idx) => idx,
+                    None => self.add_constant(atom),
+                };
+                self.emit(Opcode::OpGetMethod, &[pos]);
+
+                for arg in arguments {
+                    self.compile_expression(arg)?;
+                }
+
+                self.emit(Opcode::OpCall, &[arguments.len() + 1]);
+                Ok(())
+            }
             Expression::Loop { body } => {
                 let start_pos = self.instructions.len();
                 self.compile_expression(body)?;
@@ -321,83 +453,20 @@ impl Compiler {
                 self.emit_atom("null");
                 Ok(())
             }
-            Expression::Let {
-                name,
-                type_ann: _,
-                value,
-            } => self.compile_binding(name, value, false),
-            Expression::Const {
-                name,
-                type_ann: _,
-                value,
-            } => self.compile_binding(name, value, true),
-            Expression::Return(expr) => {
-                self.compile_expression(expr)?;
-                self.emit(Opcode::OpReturnValue, &[]);
-                Ok(())
-            }
-            Expression::Array(elements) => {
-                for el in elements.iter() {
-                    self.compile_expression(el)?;
-                }
-                self.emit(Opcode::OpArray, &[elements.len()]);
-                Ok(())
-            }
-            Expression::Hash(pairs) => {
-                for (key, val) in pairs {
-                    self.emit_atom(key);
-                    self.compile_expression(val)?;
-                }
-                self.emit(Opcode::OpHash, &[pairs.len()]);
-                Ok(())
-            }
-            Expression::Index { left, index } => {
-                self.compile_expression(left)?;
-                self.compile_expression(index)?;
-                self.emit(Opcode::OpIndex, &[]);
-                Ok(())
-            }
-            Expression::IndexAssign { left, index, value } => {
-                self.compile_expression(left)?;
-                self.compile_expression(index)?;
-                self.compile_expression(value)?;
-                self.emit(Opcode::OpSetIndex, &[]);
-                Ok(())
-            }
-            Expression::MethodCall {
-                left,
-                method,
-                arguments,
-            } => {
-                self.compile_expression(left)?;
-
-                let atom = Object::Atom(method.clone());
-                let pos = match self.constants.iter().position(|c| *c == atom) {
-                    Some(idx) => idx,
-                    None => self.add_constant(atom),
-                };
-                self.emit(Opcode::OpGetMethod, &[pos]);
-
-                for arg in arguments {
-                    self.compile_expression(arg)?;
-                }
-
-                self.emit(Opcode::OpCall, &[arguments.len() + 1]);
-                Ok(())
-            }
+            Expression::Loc { .. } => unreachable!(),
         }
     }
 
-    fn compile_identifier(&mut self, name: &str) -> Result<(), String> {
-        let symbol = self.resolve_name(name)?;
+    fn compile_identifier(&mut self, name: &str) -> Result<(), Diagnostic> {
+        let symbol = wrap_err!(self, self.resolve_name(name))?;
         self.emit_get(&symbol);
         Ok(())
     }
 
-    fn compile_assign(&mut self, name: &str, value: &Expression) -> Result<(), String> {
-        let symbol = self.resolve_name(name)?;
+    fn compile_assign(&mut self, name: &str, value: &Expression) -> Result<(), Diagnostic> {
+        let symbol = wrap_err!(self, self.resolve_name(name))?;
         if symbol.is_const {
-            return Err(format!("Cannot reassign constant '{}'", name));
+            return self.err(format!("Cannot reassign constant '{}'", name));
         }
 
         self.compile_expression(value)?;
@@ -409,7 +478,7 @@ impl Compiler {
         &mut self,
         parameters: &[(String, Option<crate::ast::TypeAnn>)],
         body: &[Expression],
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
 
         fn_compiler.constants = std::mem::take(&mut self.constants);
@@ -450,7 +519,7 @@ impl Compiler {
         &mut self,
         function: &Expression,
         arguments: &[Expression],
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         self.compile_expression(function)?;
         for arg in arguments {
             self.compile_expression(arg)?;
@@ -464,7 +533,7 @@ impl Compiler {
         left: &Expression,
         operator: &str,
         right: &Expression,
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         self.compile_expression(left)?;
         self.compile_expression(right)?;
         match operator {
@@ -476,17 +545,17 @@ impl Compiler {
             "!=" => self.emit(Opcode::OpNotEqual, &[]),
             ">" => self.emit(Opcode::OpGreater, &[]),
             "<" => self.emit(Opcode::OpLess, &[]),
-            _ => return Err(format!("Unknown operator: {}", operator)),
+            _ => return self.err(format!("Unknown operator: {}", operator)),
         };
         Ok(())
     }
 
-    fn compile_prefix(&mut self, operator: &str, right: &Expression) -> Result<(), String> {
+    fn compile_prefix(&mut self, operator: &str, right: &Expression) -> Result<(), Diagnostic> {
         self.compile_expression(right)?;
         match operator {
             "-" => self.emit(Opcode::OpMinus, &[]),
             "!" => self.emit(Opcode::OpBang, &[]),
-            _ => return Err(format!("Unknown prefix operator: {}", operator)),
+            _ => return self.err(format!("Unknown prefix operator: {}", operator)),
         };
         Ok(())
     }
@@ -496,7 +565,7 @@ impl Compiler {
         condition: &Expression,
         consequence: &Expression,
         alternative: &Option<Box<Expression>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         self.compile_expression(condition)?;
         let jump_not_truthy_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
 
@@ -523,7 +592,7 @@ impl Compiler {
         name: &str,
         value: &Expression,
         is_const: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         let symbol = self.symbol_table.define(name.to_string(), is_const);
         self.compile_expression(value)?;
 
@@ -535,7 +604,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_block(&mut self, expressions: &[Expression]) -> Result<(), String> {
+    fn compile_block(&mut self, expressions: &[Expression]) -> Result<(), Diagnostic> {
         if expressions.is_empty() {
             self.emit_atom("null");
             return Ok(());
@@ -604,34 +673,6 @@ impl Compiler {
             None => self.add_constant(atom),
         };
         self.emit(Opcode::OpConstant, &[pos]);
-    }
-
-    fn emit_get(&mut self, symbol: &Symbol) {
-        match symbol.scope {
-            SymbolScope::Local => {
-                self.emit(Opcode::OpGetLocal, &[symbol.index]);
-            }
-            SymbolScope::Global => {
-                self.emit(Opcode::OpGetGlobal, &[symbol.index]);
-            }
-            SymbolScope::Free => {
-                self.emit(Opcode::OpGetFree, &[symbol.index]);
-            }
-        }
-    }
-
-    fn emit_set(&mut self, symbol: &Symbol) {
-        match symbol.scope {
-            SymbolScope::Local => {
-                self.emit(Opcode::OpSetLocal, &[symbol.index]);
-            }
-            SymbolScope::Global => {
-                self.emit(Opcode::OpSetGlobal, &[symbol.index]);
-            }
-            SymbolScope::Free => {
-                self.emit(Opcode::OpSetFree, &[symbol.index]);
-            }
-        }
     }
 
     pub fn bytecode(self) -> Bytecode {

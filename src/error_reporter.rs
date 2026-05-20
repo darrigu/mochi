@@ -1,4 +1,12 @@
-pub fn report_errors(source: &str, errors: &[crate::parser::Diagnostic]) {
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    pub line: usize,
+    pub col: usize,
+    pub message: String,
+    pub hint: Option<String>,
+}
+
+pub fn report_errors(source: &str, errors: &[Diagnostic]) {
     let lines: Vec<&str> = source.lines().collect();
 
     for err in errors {
@@ -27,7 +35,7 @@ pub fn report_errors(source: &str, errors: &[crate::parser::Diagnostic]) {
                     print!(" ");
                 }
             }
-            println!("\x1b[31;1m╰─▶\x1b[0m");
+            println!("\x1b[31;1m^\x1b[0m");
         }
 
         if let Some(hint) = &err.hint {

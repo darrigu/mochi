@@ -1,7 +1,21 @@
 use crate::ast::{Expression, TypeAnn};
+use crate::error_reporter::Diagnostic;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+macro_rules! wrap_err {
+    ($self:expr, $res:expr) => {{
+        let line = $self.current_line;
+        let col = $self.current_col;
+        $res.map_err(|e| crate::error_reporter::Diagnostic {
+            line,
+            col,
+            message: e,
+            hint: None,
+        })
+    }};
+}
 
 #[derive(Clone, Debug)]
 pub enum Type {
@@ -105,6 +119,8 @@ pub struct TypeChecker {
     next_var_id: usize,
     substitutions: HashMap<usize, Type>,
     current_return_type: Option<Type>,
+    pub current_line: usize,
+    pub current_col: usize,
 }
 
 impl TypeChecker {
@@ -113,7 +129,18 @@ impl TypeChecker {
             next_var_id: 0,
             substitutions: HashMap::new(),
             current_return_type: None,
+            current_line: 1,
+            current_col: 1,
         }
+    }
+
+    fn err<T>(&self, msg: String) -> Result<T, Diagnostic> {
+        Err(Diagnostic {
+            line: self.current_line,
+            col: self.current_col,
+            message: msg,
+            hint: None,
+        })
     }
 
     fn new_var(&mut self) -> Type {
@@ -287,14 +314,25 @@ impl TypeChecker {
         expr: &Expression,
         env: &Rc<RefCell<TypeEnv>>,
         expected: &Type,
-    ) -> Result<Type, String> {
+    ) -> Result<Type, Diagnostic> {
+        if let Expression::Loc {
+            line,
+            col,
+            expr: inner,
+        } = expr
+        {
+            self.current_line = *line;
+            self.current_col = *col;
+            return self.check_expected(inner, env, expected);
+        }
+
         let expected = self.find(expected);
         match (expr, &expected) {
             (&Expression::Array(ref elements), &Type::Array(ref expected_elem_ty)) => {
                 let expected_elem_ty_inner = expected_elem_ty.borrow().clone();
                 for el in elements {
                     let el_ty = self.check(el, env)?;
-                    self.unify(&el_ty, &expected_elem_ty_inner)?;
+                    wrap_err!(self, self.unify(&el_ty, &expected_elem_ty_inner))?;
                 }
                 Ok(Type::Array(expected_elem_ty.clone()))
             }
@@ -306,7 +344,7 @@ impl TypeChecker {
                 if !expected_keys.is_subset(&actual_keys) {
                     let missing: Vec<String> =
                         expected_keys.difference(&actual_keys).cloned().collect();
-                    return Err(format!(
+                    return self.err(format!(
                         "Record type mismatch: missing required fields {:?}",
                         missing
                     ));
@@ -323,25 +361,40 @@ impl TypeChecker {
                 }
 
                 let actual_hash_ty = Type::Hash(Rc::new(RefCell::new(actual_fields)));
-                self.unify(&actual_hash_ty, &expected)?;
+                wrap_err!(self, self.unify(&actual_hash_ty, &expected))?;
 
                 Ok(actual_hash_ty)
             }
             _ => {
                 let val_ty = self.check(expr, env)?;
-                self.unify(&val_ty, &expected)?;
+                wrap_err!(self, self.unify(&val_ty, &expected))?;
                 Ok(val_ty)
             }
         }
     }
 
-    pub fn check(&mut self, expr: &Expression, env: &Rc<RefCell<TypeEnv>>) -> Result<Type, String> {
+    pub fn check(
+        &mut self,
+        expr: &Expression,
+        env: &Rc<RefCell<TypeEnv>>,
+    ) -> Result<Type, Diagnostic> {
+        if let Expression::Loc {
+            line,
+            col,
+            expr: inner,
+        } = expr
+        {
+            self.current_line = *line;
+            self.current_col = *col;
+            return self.check(inner, env);
+        }
+
         match expr {
             Expression::Identifier(name) => {
                 if let Some((ty, _)) = env.borrow().resolve(name) {
                     Ok(ty)
                 } else {
-                    Err(format!("Undefined variable: '{}'", name))
+                    self.err(format!("Undefined variable: '{}'", name))
                 }
             }
             Expression::Number(_) => Ok(Type::Number),
@@ -376,11 +429,11 @@ impl TypeChecker {
                 let right_ty = self.check(right, env)?;
                 match operator.as_str() {
                     "-" => {
-                        self.unify(&right_ty, &Type::Number)?;
+                        wrap_err!(self, self.unify(&right_ty, &Type::Number))?;
                         Ok(Type::Number)
                     }
                     "!" => Ok(Type::Atom),
-                    _ => Err(format!("Unknown prefix operator: '{}'", operator)),
+                    _ => self.err(format!("Unknown prefix operator: '{}'", operator)),
                 }
             }
             Expression::Infix {
@@ -393,31 +446,31 @@ impl TypeChecker {
 
                 match operator.as_str() {
                     "+" => {
-                        self.unify(&left_ty, &right_ty)?;
+                        wrap_err!(self, self.unify(&left_ty, &right_ty))?;
                         let resolved = self.find(&left_ty);
                         match resolved {
                             Type::Number | Type::String | Type::Var(_) | Type::Any => Ok(left_ty),
-                            other => Err(format!(
+                            other => self.err(format!(
                                 "Operator '+' is not supported for type '{}'",
                                 other
                             )),
                         }
                     }
                     "-" | "*" | "/" => {
-                        self.unify(&left_ty, &Type::Number)?;
-                        self.unify(&right_ty, &Type::Number)?;
+                        wrap_err!(self, self.unify(&left_ty, &Type::Number))?;
+                        wrap_err!(self, self.unify(&right_ty, &Type::Number))?;
                         Ok(Type::Number)
                     }
                     "==" | "!=" => {
-                        self.unify(&left_ty, &right_ty)?;
+                        wrap_err!(self, self.unify(&left_ty, &right_ty))?;
                         Ok(Type::Atom)
                     }
                     ">" | "<" => {
-                        self.unify(&left_ty, &Type::Number)?;
-                        self.unify(&right_ty, &Type::Number)?;
+                        wrap_err!(self, self.unify(&left_ty, &Type::Number))?;
+                        wrap_err!(self, self.unify(&right_ty, &Type::Number))?;
                         Ok(Type::Atom)
                     }
-                    _ => Err(format!("Unknown infix operator: '{}'", operator)),
+                    _ => self.err(format!("Unknown infix operator: '{}'", operator)),
                 }
             }
             Expression::If {
@@ -430,76 +483,11 @@ impl TypeChecker {
 
                 if let Some(alt) = alternative {
                     let alt_ty = self.check(alt, env)?;
-                    self.unify(&cons_ty, &alt_ty)?;
+                    wrap_err!(self, self.unify(&cons_ty, &alt_ty))?;
                     Ok(cons_ty)
                 } else {
                     Ok(Type::Any)
                 }
-            }
-            Expression::Loop { body } => {
-                let _body_ty = self.check(body, env)?;
-                Ok(Type::Atom)
-            }
-            Expression::While { condition, body } => {
-                let _cond_ty = self.check(condition, env)?;
-                let _body_ty = self.check(body, env)?;
-                Ok(Type::Atom)
-            }
-            Expression::For {
-                element,
-                iterable,
-                body,
-            } => {
-                let iter_ty = self.check(iterable, env)?;
-                let resolved_iter = self.find(&iter_ty);
-
-                let loop_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
-
-                let elem_ty = match resolved_iter {
-                    Type::Array(inner) => inner.borrow().clone(),
-                    Type::Var(_) => {
-                        let inner = self.new_var();
-                        self.unify(&iter_ty, &Type::Array(Rc::new(RefCell::new(inner.clone()))))?;
-                        inner
-                    }
-                    _ => Type::Any,
-                };
-
-                loop_env
-                    .borrow_mut()
-                    .define(element.clone(), elem_ty, false);
-                let _body_ty = self.check(body, &loop_env)?;
-                Ok(Type::Atom)
-            }
-            Expression::ForHash {
-                key,
-                value,
-                iterable,
-                body,
-            } => {
-                let iter_ty = self.check(iterable, env)?;
-                let resolved_iter = self.find(&iter_ty);
-
-                let loop_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
-
-                match resolved_iter {
-                    Type::Hash(_) => {}
-                    Type::Var(_) => {
-                        let hash_ty =
-                            Type::Hash(Rc::new(RefCell::new(std::collections::HashMap::new())));
-                        self.unify(&iter_ty, &hash_ty)?;
-                    }
-                    _ => {}
-                };
-
-                loop_env
-                    .borrow_mut()
-                    .define(key.clone(), Type::String, false);
-                loop_env
-                    .borrow_mut()
-                    .define(value.clone(), Type::Any, false);
-                let _body_ty = self.check(body, &loop_env)?;
-                Ok(Type::Atom)
             }
             Expression::Block(expressions) => {
                 let block_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
@@ -517,82 +505,84 @@ impl TypeChecker {
                 type_ann,
                 value,
             } => {
-                let val_ty = if let Some(ann) = type_ann {
+                if let Some(ann) = type_ann {
                     let expected_ty = self.map_type_ann(ann);
-                    if let Expression::Function { .. } = &**value {
+                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
                         env.borrow_mut()
                             .define(name.clone(), expected_ty.clone(), false);
-                    }
-                    let _checked_ty = self.check_expected(value, env, &expected_ty)?;
+                        self.check_expected(value, env, &expected_ty)?
+                    } else {
+                        self.check_expected(value, env, &expected_ty)?
+                    };
                     env.borrow_mut()
                         .define(name.clone(), expected_ty.clone(), false);
-                    expected_ty
+                    Ok(val_ty)
                 } else {
-                    let val_ty = if let Expression::Function { .. } = &**value {
+                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
                         let placeholder = self.new_var();
                         env.borrow_mut()
                             .define(name.clone(), placeholder.clone(), false);
                         let actual_ty = self.check(value, env)?;
-                        self.unify(&placeholder, &actual_ty)?;
+                        wrap_err!(self, self.unify(&placeholder, &actual_ty))?;
                         actual_ty
                     } else {
                         self.check(value, env)?
                     };
                     env.borrow_mut().define(name.clone(), val_ty.clone(), false);
-                    val_ty
-                };
-                Ok(val_ty)
+                    Ok(val_ty)
+                }
             }
             Expression::Const {
                 name,
                 type_ann,
                 value,
             } => {
-                let val_ty = if let Some(ann) = type_ann {
+                if let Some(ann) = type_ann {
                     let expected_ty = self.map_type_ann(ann);
-                    if let Expression::Function { .. } = &**value {
+                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
                         env.borrow_mut()
                             .define(name.clone(), expected_ty.clone(), true);
-                    }
-                    let _checked_ty = self.check_expected(value, env, &expected_ty)?;
+                        self.check_expected(value, env, &expected_ty)?
+                    } else {
+                        self.check_expected(value, env, &expected_ty)?
+                    };
                     env.borrow_mut()
                         .define(name.clone(), expected_ty.clone(), true);
-                    expected_ty
+                    Ok(val_ty)
                 } else {
-                    let val_ty = if let Expression::Function { .. } = &**value {
+                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
                         let placeholder = self.new_var();
                         env.borrow_mut()
                             .define(name.clone(), placeholder.clone(), true);
                         let actual_ty = self.check(value, env)?;
-                        self.unify(&placeholder, &actual_ty)?;
+                        wrap_err!(self, self.unify(&placeholder, &actual_ty))?;
                         actual_ty
                     } else {
                         self.check(value, env)?
                     };
                     env.borrow_mut().define(name.clone(), val_ty.clone(), true);
-                    val_ty
-                };
-                Ok(val_ty)
+                    Ok(val_ty)
+                }
             }
             Expression::Assign { name, value } => {
                 let resolved = env.borrow().resolve(name);
                 if let Some((existing_ty, is_const)) = resolved {
                     if is_const {
-                        return Err(format!("Cannot reassign constant '{}'", name));
+                        return self.err(format!("Cannot reassign constant '{}'", name));
                     }
                     let val_ty = self.check(value, env)?;
-                    self.unify(&existing_ty, &val_ty)?;
+                    wrap_err!(self, self.unify(&existing_ty, &val_ty))?;
                     Ok(val_ty)
                 } else {
-                    Err(format!("Undefined variable: '{}'", name))
+                    self.err(format!("Undefined variable: '{}'", name))
                 }
             }
             Expression::Return(expr) => {
                 let expr_ty = self.check(expr, env)?;
                 if let Some(expected_ty) = self.current_return_type.clone() {
-                    self.unify(&expr_ty, &expected_ty)?;
+                    wrap_err!(self, self.unify(&expr_ty, &expected_ty))?;
                 } else {
-                    return Err("Return statement outside function context".to_string());
+                    return self.err("Return statement outside function context".to_string());
                 }
                 Ok(expr_ty)
             }
@@ -629,7 +619,7 @@ impl TypeChecker {
                     body_ty = self.check(expr, &fn_env)?;
                 }
 
-                self.unify(&body_ty, &expected_ret)?;
+                wrap_err!(self, self.unify(&body_ty, &expected_ret))?;
                 let final_ret = self.find(&expected_ret);
                 self.current_return_type = prev_ret;
 
@@ -650,7 +640,7 @@ impl TypeChecker {
                 match resolved_fn {
                     Type::Function { params, ret } => {
                         if params.len() != arguments.len() {
-                            return Err(format!(
+                            return self.err(format!(
                                 "Function arity mismatch: expected {} arguments, got {}",
                                 params.len(),
                                 arguments.len()
@@ -675,12 +665,15 @@ impl TypeChecker {
                             arg_types.push(self.check(arg, env)?);
                         }
                         let ret_ty = self.new_var();
-                        self.unify(
-                            &fn_ty,
-                            &Type::Function {
-                                params: arg_types,
-                                ret: Box::new(ret_ty.clone()),
-                            },
+                        wrap_err!(
+                            self,
+                            self.unify(
+                                &fn_ty,
+                                &Type::Function {
+                                    params: arg_types,
+                                    ret: Box::new(ret_ty.clone()),
+                                },
+                            )
                         )?;
                         Ok(ret_ty)
                     }
@@ -708,13 +701,13 @@ impl TypeChecker {
                             match resolved_method {
                                 Type::Function { params, ret } => {
                                     if params.len() != arguments.len() + 1 {
-                                        return Err(format!(
+                                        return self.err(format!(
                                             "Function arity mismatch: expected {} arguments, got {}",
                                             params.len() - 1,
                                             arguments.len()
                                         ));
                                     }
-                                    self.unify(&left_ty, &params[0])?;
+                                    wrap_err!(self, self.unify(&left_ty, &params[0]))?;
 
                                     for (arg, param_ty) in
                                         arguments.iter().zip(params.iter().skip(1))
@@ -729,12 +722,15 @@ impl TypeChecker {
                                         checked_args.push(self.check(arg, env)?);
                                     }
                                     let ret_ty = self.new_var();
-                                    self.unify(
-                                        &method_ty,
-                                        &Type::Function {
-                                            params: checked_args,
-                                            ret: Box::new(ret_ty.clone()),
-                                        },
+                                    wrap_err!(
+                                        self,
+                                        self.unify(
+                                            &method_ty,
+                                            &Type::Function {
+                                                params: checked_args,
+                                                ret: Box::new(ret_ty.clone()),
+                                            },
+                                        )
                                     )?;
                                     Ok(ret_ty)
                                 }
@@ -769,10 +765,10 @@ impl TypeChecker {
                         };
                         fields.insert(method.clone(), method_ty);
                         let hash_ty = Type::Hash(Rc::new(RefCell::new(fields)));
-                        self.unify(&left_ty, &hash_ty)?;
+                        wrap_err!(self, self.unify(&left_ty, &hash_ty))?;
                         Ok(ret_ty)
                     }
-                    other => Err(format!(
+                    other => self.err(format!(
                         "Method call failed: receiver is of type '{}', which is not an object",
                         other
                     )),
@@ -785,11 +781,11 @@ impl TypeChecker {
                 let resolved_left = self.find(&left_ty);
                 match resolved_left {
                     Type::Array(elem_ty) => {
-                        self.unify(&index_ty, &Type::Number)?;
+                        wrap_err!(self, self.unify(&index_ty, &Type::Number))?;
                         Ok(elem_ty.borrow().clone())
                     }
                     Type::Hash(fields) => {
-                        let static_key = match &**index {
+                        let static_key = match unwrap_loc(index) {
                             Expression::StringLiteral(s) => Some(s.clone()),
                             Expression::Atom(s) => Some(s.clone()),
                             _ => None,
@@ -803,16 +799,19 @@ impl TypeChecker {
                                 Ok(new_prop_ty)
                             }
                         } else {
-                            self.unify(&index_ty, &Type::String)?;
+                            wrap_err!(self, self.unify(&index_ty, &Type::String))?;
                             Ok(Type::Any)
                         }
                     }
                     Type::Var(_) => {
                         let elem_ty = self.new_var();
                         if self.find(&index_ty) == Type::Number {
-                            self.unify(
-                                &left_ty,
-                                &Type::Array(Rc::new(RefCell::new(elem_ty.clone()))),
+                            wrap_err!(
+                                self,
+                                self.unify(
+                                    &left_ty,
+                                    &Type::Array(Rc::new(RefCell::new(elem_ty.clone()))),
+                                )
                             )?;
                             Ok(elem_ty)
                         } else {
@@ -820,7 +819,7 @@ impl TypeChecker {
                         }
                     }
                     Type::Any => Ok(Type::Any),
-                    other => Err(format!("Index operator not supported on type '{}'", other)),
+                    other => self.err(format!("Index operator not supported on type '{}'", other)),
                 }
             }
             Expression::IndexAssign { left, index, value } => {
@@ -831,12 +830,12 @@ impl TypeChecker {
                 let resolved_left = self.find(&left_ty);
                 match resolved_left {
                     Type::Array(elem_ty) => {
-                        self.unify(&index_ty, &Type::Number)?;
-                        self.unify(&*elem_ty.borrow(), &val_ty)?;
+                        wrap_err!(self, self.unify(&index_ty, &Type::Number))?;
+                        wrap_err!(self, self.unify(&*elem_ty.borrow(), &val_ty))?;
                         Ok(val_ty)
                     }
                     Type::Hash(fields) => {
-                        let static_key = match &**index {
+                        let static_key = match unwrap_loc(index) {
                             Expression::StringLiteral(s) => Some(s.clone()),
                             Expression::Atom(s) => Some(s.clone()),
                             _ => None,
@@ -845,15 +844,18 @@ impl TypeChecker {
                             fields.borrow_mut().insert(key, val_ty.clone());
                             Ok(val_ty)
                         } else {
-                            self.unify(&index_ty, &Type::String)?;
+                            wrap_err!(self, self.unify(&index_ty, &Type::String))?;
                             Ok(val_ty)
                         }
                     }
                     Type::Var(_) => {
                         if self.find(&index_ty) == Type::Number {
-                            self.unify(
-                                &left_ty,
-                                &Type::Array(Rc::new(RefCell::new(val_ty.clone()))),
+                            wrap_err!(
+                                self,
+                                self.unify(
+                                    &left_ty,
+                                    &Type::Array(Rc::new(RefCell::new(val_ty.clone()))),
+                                )
                             )?;
                         } else {
                             let mut fields = HashMap::new();
@@ -861,17 +863,99 @@ impl TypeChecker {
                             {
                                 fields.insert(key.clone(), val_ty.clone());
                             }
-                            self.unify(&left_ty, &Type::Hash(Rc::new(RefCell::new(fields))))?;
+                            wrap_err!(
+                                self,
+                                self.unify(&left_ty, &Type::Hash(Rc::new(RefCell::new(fields))))
+                            )?;
                         }
                         Ok(val_ty)
                     }
                     Type::Any => Ok(val_ty),
-                    other => Err(format!(
+                    other => self.err(format!(
                         "Property assignment not supported on type '{}'",
                         other
                     )),
                 }
             }
+            Expression::Loop { body } => {
+                let _body_ty = self.check(body, env)?;
+                Ok(Type::Atom)
+            }
+            Expression::While { condition, body } => {
+                let _cond_ty = self.check(condition, env)?;
+                let _body_ty = self.check(body, env)?;
+                Ok(Type::Atom)
+            }
+            Expression::For {
+                element,
+                iterable,
+                body,
+            } => {
+                let iter_ty = self.check(iterable, env)?;
+                let resolved_iter = self.find(&iter_ty);
+
+                let loop_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
+
+                let elem_ty = match resolved_iter {
+                    Type::Array(inner) => inner.borrow().clone(),
+                    Type::Var(_) => {
+                        let inner = self.new_var();
+                        wrap_err!(
+                            self,
+                            self.unify(
+                                &iter_ty,
+                                &Type::Array(Rc::new(RefCell::new(inner.clone())))
+                            )
+                        )?;
+                        inner
+                    }
+                    _ => Type::Any,
+                };
+
+                loop_env
+                    .borrow_mut()
+                    .define(element.clone(), elem_ty, false);
+                let _body_ty = self.check(body, &loop_env)?;
+                Ok(Type::Atom)
+            }
+            Expression::ForHash {
+                key,
+                value,
+                iterable,
+                body,
+            } => {
+                let iter_ty = self.check(iterable, env)?;
+                let resolved_iter = self.find(&iter_ty);
+
+                let loop_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
+
+                match resolved_iter {
+                    Type::Hash(_) => {}
+                    Type::Var(_) => {
+                        let hash_ty = Type::Hash(Rc::new(RefCell::new(HashMap::new())));
+                        wrap_err!(self, self.unify(&iter_ty, &hash_ty))?;
+                    }
+                    _ => {}
+                };
+
+                loop_env
+                    .borrow_mut()
+                    .define(key.clone(), Type::String, false);
+                loop_env
+                    .borrow_mut()
+                    .define(value.clone(), Type::Any, false);
+                let _body_ty = self.check(body, &loop_env)?;
+                Ok(Type::Atom)
+            }
+            Expression::Loc { .. } => unreachable!(),
         }
     }
+}
+
+fn unwrap_loc(expr: &Expression) -> &Expression {
+    let mut current = expr;
+    while let Expression::Loc { expr: inner, .. } = current {
+        current = &**inner;
+    }
+    current
 }
