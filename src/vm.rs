@@ -12,7 +12,6 @@ const GLOBALS_SIZE: usize = 65536;
 
 pub struct Frame {
     pub instructions: Vec<u8>,
-    pub constants: Vec<Object>,
     pub free: Vec<Object>,
     pub ip: usize,
     pub bp: usize,
@@ -23,6 +22,7 @@ pub struct VM {
     pub stack: Vec<Object>,
     pub sp: usize,
     globals: Vec<Object>,
+    pub constants: Vec<Object>,
     pub last_popped_stack_elem: Option<Object>,
 }
 
@@ -45,7 +45,6 @@ impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
         let main_frame = Frame {
             instructions: bytecode.instructions,
-            constants: bytecode.constants,
             free: vec![],
             ip: 0,
             bp: 0,
@@ -56,6 +55,7 @@ impl VM {
             stack: vec![Object::Number(0.0); STACK_SIZE],
             sp: 0,
             globals: vec![Object::Number(0.0); GLOBALS_SIZE],
+            constants: bytecode.constants,
             last_popped_stack_elem: None,
         }
     }
@@ -75,7 +75,7 @@ impl VM {
             match op {
                 Opcode::OpConstant => {
                     let const_index = read_u16(&mut frame);
-                    self.push(frame.constants[const_index].clone())?;
+                    self.push(self.constants[const_index].clone())?;
                 }
 
                 Opcode::OpSetGlobal => {
@@ -106,7 +106,7 @@ impl VM {
                     }
                     free.reverse();
 
-                    let func = frame.constants[const_idx].clone();
+                    let func = self.constants[const_idx].clone();
                     self.push(Object::Closure {
                         func: Box::new(func),
                         free,
@@ -140,7 +140,6 @@ impl VM {
                         Object::Closure { func, free } => {
                             if let Object::CompiledFunction {
                                 instructions,
-                                constants,
                                 num_locals,
                                 num_parameters,
                             } = *func
@@ -155,7 +154,6 @@ impl VM {
 
                                 frame = Frame {
                                     instructions,
-                                    constants,
                                     free,
                                     ip: 0,
                                     bp,
@@ -280,7 +278,7 @@ impl VM {
 
                 Opcode::OpGetMethod => {
                     let const_idx = read_u16(&mut frame);
-                    let method_name = frame.constants[const_idx].clone();
+                    let method_name = self.constants[const_idx].clone();
 
                     let obj = self.pop();
 

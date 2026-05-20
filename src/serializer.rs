@@ -35,7 +35,6 @@ fn serialize_object(obj: &Object, bytes: &mut Vec<u8>) {
         }
         Object::CompiledFunction {
             instructions,
-            constants,
             num_locals,
             num_parameters,
         } => {
@@ -43,11 +42,6 @@ fn serialize_object(obj: &Object, bytes: &mut Vec<u8>) {
 
             bytes.extend_from_slice(&(instructions.len() as u32).to_le_bytes());
             bytes.extend_from_slice(instructions);
-
-            bytes.extend_from_slice(&(constants.len() as u32).to_le_bytes());
-            for constant in constants {
-                serialize_object(constant, bytes);
-            }
 
             bytes.extend_from_slice(&(*num_locals as u32).to_le_bytes());
             bytes.extend_from_slice(&(*num_parameters as u32).to_le_bytes());
@@ -106,18 +100,11 @@ fn deserialize_object(bytes: &[u8], offset: &mut usize) -> Result<Object, String
             let instructions = bytes[*offset..*offset + inst_len].to_vec();
             *offset += inst_len;
 
-            let const_len = read_u32(bytes, offset)?;
-            let mut constants = Vec::with_capacity(const_len);
-            for _ in 0..const_len {
-                constants.push(deserialize_object(bytes, offset)?);
-            }
-
             let num_locals = read_u32(bytes, offset)?;
             let num_parameters = read_u32(bytes, offset)?;
 
             Ok(Object::CompiledFunction {
                 instructions,
-                constants,
                 num_locals,
                 num_parameters,
             })

@@ -12,7 +12,6 @@ pub enum Object {
     Hash(Rc<RefCell<IndexMap<String, Object>>>),
     CompiledFunction {
         instructions: Vec<u8>,
-        constants: Vec<Object>,
         num_locals: usize,
         num_parameters: usize,
     },

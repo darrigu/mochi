@@ -257,6 +257,8 @@ impl Compiler {
     ) -> Result<(), String> {
         let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
 
+        fn_compiler.constants = std::mem::take(&mut self.constants);
+
         for param in parameters {
             fn_compiler.symbol_table.define(param.clone(), false);
         }
@@ -267,10 +269,10 @@ impl Compiler {
         let free_symbols = fn_compiler.symbol_table.free_symbols.clone();
         let num_free = free_symbols.len();
 
-        let bytecode = fn_compiler.bytecode();
+        self.constants = fn_compiler.constants;
+
         let fn_obj = Object::CompiledFunction {
-            instructions: bytecode.instructions,
-            constants: bytecode.constants,
+            instructions: fn_compiler.instructions,
             num_locals,
             num_parameters: parameters.len(),
         };

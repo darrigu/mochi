@@ -253,7 +253,7 @@ impl Parser {
         };
         Some(Expression::Index {
             left: Box::new(left),
-            index: Box::new(Expression::StringLiteral(name)),
+            index: Box::new(Expression::Atom(name)),
         })
     }
 
