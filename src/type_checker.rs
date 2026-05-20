@@ -436,6 +436,71 @@ impl TypeChecker {
                     Ok(Type::Any)
                 }
             }
+            Expression::Loop { body } => {
+                let _body_ty = self.check(body, env)?;
+                Ok(Type::Atom)
+            }
+            Expression::While { condition, body } => {
+                let _cond_ty = self.check(condition, env)?;
+                let _body_ty = self.check(body, env)?;
+                Ok(Type::Atom)
+            }
+            Expression::For {
+                element,
+                iterable,
+                body,
+            } => {
+                let iter_ty = self.check(iterable, env)?;
+                let resolved_iter = self.find(&iter_ty);
+
+                let loop_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
+
+                let elem_ty = match resolved_iter {
+                    Type::Array(inner) => inner.borrow().clone(),
+                    Type::Var(_) => {
+                        let inner = self.new_var();
+                        self.unify(&iter_ty, &Type::Array(Rc::new(RefCell::new(inner.clone()))))?;
+                        inner
+                    }
+                    _ => Type::Any,
+                };
+
+                loop_env
+                    .borrow_mut()
+                    .define(element.clone(), elem_ty, false);
+                let _body_ty = self.check(body, &loop_env)?;
+                Ok(Type::Atom)
+            }
+            Expression::ForHash {
+                key,
+                value,
+                iterable,
+                body,
+            } => {
+                let iter_ty = self.check(iterable, env)?;
+                let resolved_iter = self.find(&iter_ty);
+
+                let loop_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
+
+                match resolved_iter {
+                    Type::Hash(_) => {}
+                    Type::Var(_) => {
+                        let hash_ty =
+                            Type::Hash(Rc::new(RefCell::new(std::collections::HashMap::new())));
+                        self.unify(&iter_ty, &hash_ty)?;
+                    }
+                    _ => {}
+                };
+
+                loop_env
+                    .borrow_mut()
+                    .define(key.clone(), Type::String, false);
+                loop_env
+                    .borrow_mut()
+                    .define(value.clone(), Type::Any, false);
+                let _body_ty = self.check(body, &loop_env)?;
+                Ok(Type::Atom)
+            }
             Expression::Block(expressions) => {
                 let block_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
                 if expressions.is_empty() {

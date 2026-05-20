@@ -106,6 +106,9 @@ impl Parser {
             Token::Let => self.parse_let_expression(),
             Token::Const => self.parse_const_expression(),
             Token::Return => self.parse_return_expression(),
+            Token::Loop => self.parse_loop_expression(),
+            Token::While => self.parse_while_expression(),
+            Token::For => self.parse_for_expression(),
             _ => {
                 let msg = match self.current_token {
                     Token::Illegal(c) => format!("Illegal character '{}'", c),
@@ -653,6 +656,98 @@ impl Parser {
                 condition: Box::new(condition),
                 consequence: Box::new(consequence),
                 alternative: Some(Box::new(alternative)),
+            })
+        }
+    }
+
+    fn parse_loop_body(&mut self) -> Option<Expression> {
+        if self.peek_token == Token::Do {
+            self.next_token();
+            self.next_token();
+            let exprs = self.parse_block_expressions();
+            if self.current_token != Token::End {
+                self.report_error_with_hint(
+                    format!(
+                        "Expected 'end' to close loop body, got {:?}",
+                        self.current_token
+                    ),
+                    "Loop bodies starting with 'do' must explicitly end with 'end'".to_string(),
+                );
+                return None;
+            }
+            Some(Expression::Block(exprs))
+        } else {
+            self.next_token();
+            self.parse_expression(Precedence::Lowest)
+        }
+    }
+
+    fn parse_loop_expression(&mut self) -> Option<Expression> {
+        let body = self.parse_loop_body()?;
+        Some(Expression::Loop {
+            body: Box::new(body),
+        })
+    }
+
+    fn parse_while_expression(&mut self) -> Option<Expression> {
+        self.next_token();
+        let condition = self.parse_expression(Precedence::Lowest)?;
+        let body = self.parse_loop_body()?;
+        Some(Expression::While {
+            condition: Box::new(condition),
+            body: Box::new(body),
+        })
+    }
+
+    fn parse_for_expression(&mut self) -> Option<Expression> {
+        self.next_token();
+
+        let first_id = match &self.current_token {
+            Token::Ident(name) => name.clone(),
+            _ => {
+                self.report_error("Expected identifier after 'for'".to_string());
+                return None;
+            }
+        };
+
+        if self.peek_token == Token::Comma {
+            self.next_token();
+            self.next_token();
+            let second_id = match &self.current_token {
+                Token::Ident(name) => name.clone(),
+                _ => {
+                    self.report_error("Expected second identifier after ',' in 'for'".to_string());
+                    return None;
+                }
+            };
+
+            if !self.expect_peek(Token::In) {
+                self.report_error("Expected 'in' after loop variables".to_string());
+                return None;
+            }
+            self.next_token();
+            let iterable = self.parse_expression(Precedence::Lowest)?;
+
+            let body = self.parse_loop_body()?;
+            Some(Expression::ForHash {
+                key: first_id,
+                value: second_id,
+                iterable: Box::new(iterable),
+                body: Box::new(body),
+            })
+        } else {
+            if !self.expect_peek(Token::In) {
+                self.report_error("Expected 'in' after loop variable".to_string());
+                return None;
+            }
+            self.next_token();
+            let iterable = self.parse_expression(Precedence::Lowest)?;
+
+            let body = self.parse_loop_body()?;
+            Some(Expression::For {
+                element: first_id,
+                iterable: Box::new(iterable),
+                body: Box::new(body),
             })
         }
     }

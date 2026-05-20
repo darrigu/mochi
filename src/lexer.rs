@@ -8,6 +8,10 @@ pub enum Token {
     End,
     Return,
     Do,
+    Loop,
+    While,
+    For,
+    In,
     Ident(String),
     Number(f64),
     StringLiteral(String),
@@ -193,6 +197,10 @@ impl Lexer {
             "end" => Token::End,
             "return" => Token::Return,
             "do" => Token::Do,
+            "loop" => Token::Loop,
+            "while" => Token::While,
+            "for" => Token::For,
+            "in" => Token::In,
             _ => Token::Ident(ident.to_string()),
         }
     }

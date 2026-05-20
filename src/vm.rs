@@ -205,6 +205,30 @@ impl VM {
 
                     self.push(Object::Hash(Rc::new(RefCell::new(hash))))?;
                 }
+                Opcode::OpArrayLen => {
+                    let arr_obj = self.pop();
+                    match arr_obj {
+                        Object::Array(arr) => {
+                            let len = arr.borrow().len();
+                            self.push(Object::Number(len as f64))?;
+                        }
+                        _ => return Err("Expected array for length check".into()),
+                    }
+                }
+                Opcode::OpHashKeys => {
+                    let hash_obj = self.pop();
+                    match hash_obj {
+                        Object::Hash(hash) => {
+                            let keys: Vec<Object> = hash
+                                .borrow()
+                                .keys()
+                                .map(|k| Object::String(k.clone()))
+                                .collect();
+                            self.push(Object::Array(Rc::new(RefCell::new(keys))))?;
+                        }
+                        _ => return Err("Expected hash for keys extraction".into()),
+                    }
+                }
                 Opcode::OpIndex => {
                     let index = self.pop();
                     let left = self.pop();

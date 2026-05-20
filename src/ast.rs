@@ -35,6 +35,24 @@ pub enum Expression {
         consequence: Box<Expression>,
         alternative: Option<Box<Expression>>,
     },
+    Loop {
+        body: Box<Expression>,
+    },
+    While {
+        condition: Box<Expression>,
+        body: Box<Expression>,
+    },
+    For {
+        element: String,
+        iterable: Box<Expression>,
+        body: Box<Expression>,
+    },
+    ForHash {
+        key: String,
+        value: String,
+        iterable: Box<Expression>,
+        body: Box<Expression>,
+    },
 
     Function {
         parameters: Vec<(String, Option<TypeAnn>)>,

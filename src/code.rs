@@ -28,11 +28,13 @@ pub enum Opcode {
     OpIndex,
     OpSetIndex,
     OpGetMethod,
+    OpArrayLen,
+    OpHashKeys,
 }
 
 impl From<u8> for Opcode {
     fn from(val: u8) -> Self {
-        if val <= 27 {
+        if val <= 29 {
             unsafe { std::mem::transmute(val) }
         } else {
             panic!("Unknown Opcode: {}", val)

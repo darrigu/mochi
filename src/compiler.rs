@@ -170,6 +170,157 @@ impl Compiler {
                 consequence,
                 alternative,
             } => self.compile_if(condition, consequence, alternative),
+            Expression::Loop { body } => {
+                let start_pos = self.instructions.len();
+                self.compile_expression(body)?;
+                self.emit(Opcode::OpPop, &[]);
+                self.emit(Opcode::OpJump, &[start_pos]);
+                self.emit_atom("null");
+                Ok(())
+            }
+            Expression::While { condition, body } => {
+                let start_pos = self.instructions.len();
+                self.compile_expression(condition)?;
+                let jump_out_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+                self.compile_expression(body)?;
+                self.emit(Opcode::OpPop, &[]);
+                self.emit(Opcode::OpJump, &[start_pos]);
+                self.change_operand(jump_out_pos, self.instructions.len());
+                self.emit_atom("null");
+                Ok(())
+            }
+            Expression::For {
+                element,
+                iterable,
+                body,
+            } => {
+                let start_pos_id = self.instructions.len();
+                let arr_sym = self
+                    .symbol_table
+                    .define(format!("_arr_{}", start_pos_id), false);
+                let idx_sym = self
+                    .symbol_table
+                    .define(format!("_idx_{}", start_pos_id), false);
+                let len_sym = self
+                    .symbol_table
+                    .define(format!("_len_{}", start_pos_id), false);
+
+                self.compile_expression(iterable)?;
+                self.emit_set(&arr_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                let zero_pos = self.add_constant(Object::Number(0.0));
+                self.emit(Opcode::OpConstant, &[zero_pos]);
+                self.emit_set(&idx_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit_get(&arr_sym);
+                self.emit(Opcode::OpArrayLen, &[]);
+                self.emit_set(&len_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                let loop_start = self.instructions.len();
+                self.emit_get(&idx_sym);
+                self.emit_get(&len_sym);
+                self.emit(Opcode::OpLess, &[]);
+                let jump_out_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+
+                let el_sym = self.symbol_table.define(element.clone(), false);
+                self.emit_get(&arr_sym);
+                self.emit_get(&idx_sym);
+                self.emit(Opcode::OpIndex, &[]);
+                self.emit_set(&el_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.compile_expression(body)?;
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit_get(&idx_sym);
+                let one_pos = self.add_constant(Object::Number(1.0));
+                self.emit(Opcode::OpConstant, &[one_pos]);
+                self.emit(Opcode::OpAdd, &[]);
+                self.emit_set(&idx_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit(Opcode::OpJump, &[loop_start]);
+                self.change_operand(jump_out_pos, self.instructions.len());
+                self.emit_atom("null");
+                Ok(())
+            }
+            Expression::ForHash {
+                key,
+                value,
+                iterable,
+                body,
+            } => {
+                let start_pos_id = self.instructions.len();
+                let hash_sym = self
+                    .symbol_table
+                    .define(format!("_hash_{}", start_pos_id), false);
+                let keys_sym = self
+                    .symbol_table
+                    .define(format!("_keys_{}", start_pos_id), false);
+                let idx_sym = self
+                    .symbol_table
+                    .define(format!("_idx_{}", start_pos_id), false);
+                let len_sym = self
+                    .symbol_table
+                    .define(format!("_len_{}", start_pos_id), false);
+
+                self.compile_expression(iterable)?;
+                self.emit_set(&hash_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit_get(&hash_sym);
+                self.emit(Opcode::OpHashKeys, &[]);
+                self.emit_set(&keys_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                let zero_pos = self.add_constant(Object::Number(0.0));
+                self.emit(Opcode::OpConstant, &[zero_pos]);
+                self.emit_set(&idx_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit_get(&keys_sym);
+                self.emit(Opcode::OpArrayLen, &[]);
+                self.emit_set(&len_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                let loop_start = self.instructions.len();
+                self.emit_get(&idx_sym);
+                self.emit_get(&len_sym);
+                self.emit(Opcode::OpLess, &[]);
+                let jump_out_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+
+                let key_sym = self.symbol_table.define(key.clone(), false);
+                self.emit_get(&keys_sym);
+                self.emit_get(&idx_sym);
+                self.emit(Opcode::OpIndex, &[]);
+                self.emit_set(&key_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                let val_sym = self.symbol_table.define(value.clone(), false);
+                self.emit_get(&hash_sym);
+                self.emit_get(&key_sym);
+                self.emit(Opcode::OpIndex, &[]);
+                self.emit_set(&val_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.compile_expression(body)?;
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit_get(&idx_sym);
+                let one_pos = self.add_constant(Object::Number(1.0));
+                self.emit(Opcode::OpConstant, &[one_pos]);
+                self.emit(Opcode::OpAdd, &[]);
+                self.emit_set(&idx_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit(Opcode::OpJump, &[loop_start]);
+                self.change_operand(jump_out_pos, self.instructions.len());
+                self.emit_atom("null");
+                Ok(())
+            }
             Expression::Let {
                 name,
                 type_ann: _,
@@ -239,11 +390,7 @@ impl Compiler {
 
     fn compile_identifier(&mut self, name: &str) -> Result<(), String> {
         let symbol = self.resolve_name(name)?;
-        match symbol.scope {
-            SymbolScope::Local => self.emit(Opcode::OpGetLocal, &[symbol.index]),
-            SymbolScope::Global => self.emit(Opcode::OpGetGlobal, &[symbol.index]),
-            SymbolScope::Free => self.emit(Opcode::OpGetFree, &[symbol.index]),
-        };
+        self.emit_get(&symbol);
         Ok(())
     }
 
@@ -254,11 +401,7 @@ impl Compiler {
         }
 
         self.compile_expression(value)?;
-        match symbol.scope {
-            SymbolScope::Local => self.emit(Opcode::OpSetLocal, &[symbol.index]),
-            SymbolScope::Global => self.emit(Opcode::OpSetGlobal, &[symbol.index]),
-            SymbolScope::Free => self.emit(Opcode::OpSetFree, &[symbol.index]),
-        };
+        self.emit_set(&symbol);
         Ok(())
     }
 
@@ -461,6 +604,34 @@ impl Compiler {
             None => self.add_constant(atom),
         };
         self.emit(Opcode::OpConstant, &[pos]);
+    }
+
+    fn emit_get(&mut self, symbol: &Symbol) {
+        match symbol.scope {
+            SymbolScope::Local => {
+                self.emit(Opcode::OpGetLocal, &[symbol.index]);
+            }
+            SymbolScope::Global => {
+                self.emit(Opcode::OpGetGlobal, &[symbol.index]);
+            }
+            SymbolScope::Free => {
+                self.emit(Opcode::OpGetFree, &[symbol.index]);
+            }
+        }
+    }
+
+    fn emit_set(&mut self, symbol: &Symbol) {
+        match symbol.scope {
+            SymbolScope::Local => {
+                self.emit(Opcode::OpSetLocal, &[symbol.index]);
+            }
+            SymbolScope::Global => {
+                self.emit(Opcode::OpSetGlobal, &[symbol.index]);
+            }
+            SymbolScope::Free => {
+                self.emit(Opcode::OpSetFree, &[symbol.index]);
+            }
+        }
     }
 
     pub fn bytecode(self) -> Bytecode {

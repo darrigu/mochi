@@ -280,6 +280,59 @@ mod tests {
     }
 
     #[test]
+    fn test_while_loops() {
+        let input = "
+            let i = 0
+            let sum = 0
+            while i < 10 do
+                sum = sum + i
+                i = i + 1
+            end
+            sum
+        ";
+        test_script(input, Object::Number(45.0));
+    }
+
+    #[test]
+    fn test_for_array_loops() {
+        let input = "
+            let list = [10, 20, 30]
+            let sum = 0
+            for x in list do
+                sum = sum + x
+            end
+            sum
+        ";
+        test_script(input, Object::Number(60.0));
+    }
+
+    #[test]
+    fn test_for_hash_loops() {
+        let input = "
+            let obj = { a: 10, b: 20 }
+            let sum = 0
+            for k, v in obj do
+                sum = sum + v
+            end
+            sum
+        ";
+        test_script(input, Object::Number(30.0));
+    }
+
+    #[test]
+    fn test_loop_type_safety() {
+        test_script(
+            "const list: [Number] = [1, 2, 3] let sum: Number = 0 for x in list do sum = sum + x end sum",
+            Object::Number(6.0),
+        );
+
+        test_type_error(
+            "const list: [String] = [\"a\"] let sum: Number = 0 for x in list do sum = sum + x end",
+            "cannot unify 'Number' with 'String'",
+        );
+    }
+
+    #[test]
     fn test_functions_basic() {
         test_script(
             "fn identity(a) do return a end identity(5)",
