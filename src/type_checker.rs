@@ -1,6 +1,6 @@
 use crate::ast::{Expression, TypeAnn};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -181,25 +181,37 @@ impl TypeChecker {
                 self.unify(&*inner1.borrow(), &*inner2.borrow())
             }
             (Type::Hash(fields1), Type::Hash(fields2)) => {
-                let keys1: Vec<String> = fields1.borrow().keys().cloned().collect();
-                let keys2: Vec<String> = fields2.borrow().keys().cloned().collect();
+                let keys1: HashSet<String> = fields1.borrow().keys().cloned().collect();
+                let keys2: HashSet<String> = fields2.borrow().keys().cloned().collect();
 
-                for k in &keys1 {
-                    if fields2.borrow().contains_key(k) {
-                        let v1 = fields1.borrow().get(k).unwrap().clone();
+                let is_subset_1_in_2 = keys1.is_subset(&keys2);
+                let is_subset_2_in_1 = keys2.is_subset(&keys1);
+
+                if !is_subset_1_in_2 && !is_subset_2_in_1 {
+                    return Err(format!(
+                        "Record type mismatch: incompatible fields. Got {:?}, expected {:?}",
+                        keys1, keys2
+                    ));
+                }
+
+                for k in keys1.intersection(&keys2) {
+                    let v1 = fields1.borrow().get(k).unwrap().clone();
+                    let v2 = fields2.borrow().get(k).unwrap().clone();
+                    self.unify(&v1, &v2)?;
+                }
+
+                if is_subset_1_in_2 {
+                    for k in keys2.difference(&keys1) {
                         let v2 = fields2.borrow().get(k).unwrap().clone();
-                        self.unify(&v1, &v2)?;
-                    } else {
+                        fields1.borrow_mut().insert(k.clone(), v2);
+                    }
+                } else if is_subset_2_in_1 {
+                    for k in keys1.difference(&keys2) {
                         let v1 = fields1.borrow().get(k).unwrap().clone();
                         fields2.borrow_mut().insert(k.clone(), v1);
                     }
                 }
-                for k in &keys2 {
-                    if !fields1.borrow().contains_key(k) {
-                        let v2 = fields2.borrow().get(k).unwrap().clone();
-                        fields1.borrow_mut().insert(k.clone(), v2);
-                    }
-                }
+
                 Ok(())
             }
             (
@@ -278,13 +290,42 @@ impl TypeChecker {
     ) -> Result<Type, String> {
         let expected = self.find(expected);
         match (expr, &expected) {
-            (Expression::Array(elements), Type::Array(expected_elem_ty)) => {
+            (&Expression::Array(ref elements), &Type::Array(ref expected_elem_ty)) => {
                 let expected_elem_ty_inner = expected_elem_ty.borrow().clone();
                 for el in elements {
                     let el_ty = self.check(el, env)?;
                     self.unify(&el_ty, &expected_elem_ty_inner)?;
                 }
                 Ok(Type::Array(expected_elem_ty.clone()))
+            }
+            (&Expression::Hash(ref pairs), &Type::Hash(ref expected_fields)) => {
+                let actual_keys: HashSet<String> = pairs.iter().map(|(k, _)| k.clone()).collect();
+                let expected_keys: HashSet<String> =
+                    expected_fields.borrow().keys().cloned().collect();
+
+                if !expected_keys.is_subset(&actual_keys) {
+                    let missing: Vec<String> =
+                        expected_keys.difference(&actual_keys).cloned().collect();
+                    return Err(format!(
+                        "Record type mismatch: missing required fields {:?}",
+                        missing
+                    ));
+                }
+
+                let mut actual_fields = HashMap::new();
+                for (key, val) in pairs {
+                    let val_ty = if let Some(expected_val_ty) = expected_fields.borrow().get(key) {
+                        self.check_expected(val, env, expected_val_ty)?
+                    } else {
+                        self.check(val, env)?
+                    };
+                    actual_fields.insert(key.clone(), val_ty);
+                }
+
+                let actual_hash_ty = Type::Hash(Rc::new(RefCell::new(actual_fields)));
+                self.unify(&actual_hash_ty, &expected)?;
+
+                Ok(actual_hash_ty)
             }
             _ => {
                 let val_ty = self.check(expr, env)?;
@@ -539,15 +580,35 @@ impl TypeChecker {
                 arguments,
             } => {
                 let fn_ty = self.check(function, env)?;
-                let mut arg_types = vec![];
-                for arg in arguments {
-                    arg_types.push(self.check(arg, env)?);
-                }
-
                 let resolved_fn = self.find(&fn_ty);
+
                 match resolved_fn {
-                    Type::Any => Ok(Type::Any),
+                    Type::Function { params, ret } => {
+                        if params.len() != arguments.len() {
+                            return Err(format!(
+                                "Function arity mismatch: expected {} arguments, got {}",
+                                params.len(),
+                                arguments.len()
+                            ));
+                        }
+                        let mut arg_types = vec![];
+                        for (arg, param_ty) in arguments.iter().zip(params.iter()) {
+                            arg_types.push(self.check_expected(arg, env, param_ty)?);
+                        }
+                        Ok(*ret)
+                    }
+                    Type::Any => {
+                        let mut arg_types = vec![];
+                        for arg in arguments {
+                            arg_types.push(self.check(arg, env)?);
+                        }
+                        Ok(Type::Any)
+                    }
                     _ => {
+                        let mut arg_types = vec![];
+                        for arg in arguments {
+                            arg_types.push(self.check(arg, env)?);
+                        }
                         let ret_ty = self.new_var();
                         self.unify(
                             &fn_ty,
@@ -578,21 +639,58 @@ impl TypeChecker {
                 match resolved_left {
                     Type::Hash(fields) => {
                         if let Some(method_ty) = fields.borrow().get(method).cloned() {
-                            self.unify(
-                                &method_ty,
-                                &Type::Function {
-                                    params: checked_args,
-                                    ret: Box::new(ret_ty.clone()),
-                                },
-                            )?;
+                            let resolved_method = self.find(&method_ty);
+                            match resolved_method {
+                                Type::Function { params, ret } => {
+                                    if params.len() != arguments.len() + 1 {
+                                        return Err(format!(
+                                            "Function arity mismatch: expected {} arguments, got {}",
+                                            params.len() - 1,
+                                            arguments.len()
+                                        ));
+                                    }
+                                    self.unify(&left_ty, &params[0])?;
+
+                                    for (arg, param_ty) in
+                                        arguments.iter().zip(params.iter().skip(1))
+                                    {
+                                        self.check_expected(arg, env, param_ty)?;
+                                    }
+                                    Ok(*ret)
+                                }
+                                _ => {
+                                    let mut checked_args = vec![left_ty.clone()];
+                                    for arg in arguments {
+                                        checked_args.push(self.check(arg, env)?);
+                                    }
+                                    let ret_ty = self.new_var();
+                                    self.unify(
+                                        &method_ty,
+                                        &Type::Function {
+                                            params: checked_args,
+                                            ret: Box::new(ret_ty.clone()),
+                                        },
+                                    )?;
+                                    Ok(ret_ty)
+                                }
+                            }
                         } else {
+                            let mut checked_args = vec![left_ty.clone()];
+                            let mut method_args = checked_args.clone();
+                            method_args[0] = Type::Any;
+                            for arg in arguments {
+                                let arg_ty = self.check(arg, env)?;
+                                checked_args.push(arg_ty.clone());
+                                method_args.push(arg_ty);
+                            }
+                            let ret_ty = self.new_var();
                             let method_ty = Type::Function {
-                                params: checked_args,
+                                params: method_args,
                                 ret: Box::new(ret_ty.clone()),
                             };
                             fields.borrow_mut().insert(method.clone(), method_ty);
+                            Ok(ret_ty)
                         }
-                        Ok(ret_ty)
                     }
                     Type::Any => Ok(Type::Any),
                     Type::Var(_) => {

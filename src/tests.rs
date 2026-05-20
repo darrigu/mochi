@@ -718,5 +718,13 @@ mod tests {
             "const user: { name: String, age: Number } = { name: \"Hugo\", age: :unknown }",
             "Type mismatch: cannot unify 'Atom' with 'Number'",
         );
+        test_type_error(
+            "const user: { name: String, age: Number } = { name: \"Hugo\", number: 3 }",
+            "Record type mismatch",
+        );
+        test_type_error(
+            "const user: { name: String, age: Number } = { name: \"Hugo\" }",
+            "Record type mismatch: missing required fields",
+        );
     }
 }
