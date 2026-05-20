@@ -7,6 +7,7 @@ mod object;
 mod parser;
 mod serializer;
 mod tests;
+mod type_checker;
 mod vm;
 
 use crate::compiler::Bytecode;
@@ -37,6 +38,15 @@ fn compile_source(source: &str) -> Bytecode {
     if !parser.errors.is_empty() {
         error_reporter::report_errors(source, &parser.errors);
         process::exit(1);
+    }
+
+    let mut checker = type_checker::TypeChecker::new();
+    let env = std::rc::Rc::new(std::cell::RefCell::new(type_checker::TypeEnv::new()));
+    for expr in &program.expressions {
+        if let Err(e) = checker.check(expr, &env) {
+            error_reporter::report_system_error("typechecker", &e);
+            process::exit(1);
+        }
     }
 
     let mut compiler = Compiler::new();

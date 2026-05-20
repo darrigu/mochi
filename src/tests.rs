@@ -18,6 +18,14 @@ mod tests {
             parser.errors
         );
 
+        let mut checker = crate::type_checker::TypeChecker::new();
+        let env = std::rc::Rc::new(std::cell::RefCell::new(crate::type_checker::TypeEnv::new()));
+        for expr in &program.expressions {
+            if let Err(e) = checker.check(expr, &env) {
+                panic!("Typechecker error for '{}': {}", input, e);
+            }
+        }
+
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile_program(&program) {
             panic!("Compiler error for '{}': {}", input, e);
@@ -43,6 +51,48 @@ mod tests {
             vm.sp,
             &vm.stack[..vm.sp.min(10)]
         );
+    }
+
+    fn test_type_error(input: &str, expected_substring: &str) {
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.is_empty(),
+            "Parser encountered errors for '{}': {:#?}",
+            input,
+            parser.errors
+        );
+
+        let mut checker = crate::type_checker::TypeChecker::new();
+        let env = std::rc::Rc::new(std::cell::RefCell::new(crate::type_checker::TypeEnv::new()));
+        let mut actual_error = None;
+
+        for expr in &program.expressions {
+            if let Err(e) = checker.check(expr, &env) {
+                actual_error = Some(e);
+                break;
+            }
+        }
+
+        match actual_error {
+            Some(err) => {
+                assert!(
+                    err.contains(expected_substring),
+                    "Expected static type error containing '{}', but got '{}' in program:\n{}",
+                    expected_substring,
+                    err,
+                    input
+                );
+            }
+            None => {
+                panic!(
+                    "Expected program to fail typecheck with error containing '{}', but it compiled successfully:\n{}",
+                    expected_substring, input
+                );
+            }
+        }
     }
 
     #[test]
@@ -472,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Wrong number of arguments")]
+    #[should_panic(expected = "Function arity mismatch: expected 2 arguments, got 3")]
     fn test_wrong_number_of_arguments() {
         let input = "
             fn add(a, b) do return a + b end
@@ -558,8 +608,6 @@ mod tests {
         test_script(":ok == :error", Object::Atom("false".to_string()));
         test_script(":ok != :error", Object::Atom("true".to_string()));
 
-        test_script(":ok == \"ok\"", Object::Atom("false".to_string()));
-
         let input = "
             let status = :success
             if status == :success do
@@ -593,5 +641,51 @@ mod tests {
             bank.balance
         ";
         test_script(input2, Object::Number(150.0));
+    }
+
+    #[test]
+    fn test_static_type_checking() {
+        test_type_error(
+            ":ok == \"ok\"",
+            "Type mismatch: cannot unify 'Atom' with 'String'",
+        );
+        test_type_error(
+            "1 != :false",
+            "Type mismatch: cannot unify 'Number' with 'Atom'",
+        );
+
+        test_type_error(
+            "1 + \"hello\"",
+            "Type mismatch: cannot unify 'Number' with 'String'",
+        );
+        test_type_error(
+            "\"hello\" - 5",
+            "Type mismatch: cannot unify 'String' with 'Number'",
+        );
+
+        test_type_error(
+            "const limit = 100 \n limit = 200",
+            "Cannot reassign constant 'limit'",
+        );
+
+        test_type_error(
+            "let status = :ok \n status = 50",
+            "Type mismatch: cannot unify 'Atom' with 'Number'",
+        );
+
+        test_type_error(
+            "let value = 42 \n value(10)",
+            "Type mismatch: cannot unify 'Number'",
+        );
+
+        test_type_error(
+            "let primitive = 3.14 \n primitive:bump()",
+            "receiver is of type 'Number', which is not an object",
+        );
+
+        test_type_error(
+            "let primitive = :atom \n primitive[0]",
+            "Index operator not supported on type 'Atom'",
+        );
     }
 }
