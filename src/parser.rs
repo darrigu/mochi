@@ -262,6 +262,10 @@ impl Parser {
 
     fn parse_type_annotation(&mut self) -> Option<TypeAnn> {
         self.next_token();
+        self.parse_type_annotation_inner()
+    }
+
+    fn parse_type_annotation_inner(&mut self) -> Option<TypeAnn> {
         match &self.current_token {
             Token::Ident(name) => match name.as_str() {
                 "Number" => Some(TypeAnn::Number),
@@ -328,8 +332,21 @@ impl Parser {
                 let mut params = vec![];
                 if self.peek_token != Token::RParen {
                     loop {
-                        let param_type = self.parse_type_annotation()?;
+                        self.next_token();
+
+                        let is_named = match &self.current_token {
+                            Token::Ident(_) => self.peek_token == Token::Colon,
+                            _ => false,
+                        };
+
+                        if is_named {
+                            self.next_token();
+                            self.next_token();
+                        }
+
+                        let param_type = self.parse_type_annotation_inner()?;
                         params.push(param_type);
+
                         if self.peek_token == Token::Comma {
                             self.next_token();
                         } else {

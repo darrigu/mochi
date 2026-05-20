@@ -779,5 +779,15 @@ mod tests {
             "const user: { name: String, age: Number } = { name: \"Hugo\" }",
             "Record type mismatch: missing required fields",
         );
+
+        test_script(
+            "const add: fn(x: Number, y: Number): Number = fn(x, y) x + y \n add(3, 4)",
+            Object::Number(7.0),
+        );
+
+        test_type_error(
+            "const add: fn(x: Number, y: Number): Number = fn(x, y) \"mismatch\"",
+            "Type mismatch: cannot unify 'String' with 'Number'",
+        );
     }
 }
