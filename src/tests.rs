@@ -687,5 +687,36 @@ mod tests {
             "let primitive = :atom \n primitive[0]",
             "Index operator not supported on type 'Atom'",
         );
+
+        test_script("let x: Number = 5 x", Object::Number(5.0));
+        test_script(
+            "const arr: [Number] = [1, 2, 3] arr[1]",
+            Object::Number(2.0),
+        );
+        test_script(
+            "fn add(a: Number, b: Number): Number do return a + b end add(10, 20)",
+            Object::Number(30.0),
+        );
+        test_script(
+            "const user: { name: String, age: Number } = { name: \"Hugo\", age: 26 } user.age",
+            Object::Number(26.0),
+        );
+
+        test_type_error(
+            "let x: String = 42",
+            "Type mismatch: cannot unify 'Number' with 'String'",
+        );
+        test_type_error(
+            "const arr: [Number] = [1, \"mismatch\", 3]",
+            "Type mismatch: cannot unify 'String' with 'Number'",
+        );
+        test_type_error(
+            "fn get_name(name: String): String do return 42 end",
+            "Type mismatch: cannot unify 'Number' with 'String'",
+        );
+        test_type_error(
+            "const user: { name: String, age: Number } = { name: \"Hugo\", age: :unknown }",
+            "Type mismatch: cannot unify 'Atom' with 'Number'",
+        );
     }
 }

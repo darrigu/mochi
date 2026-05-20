@@ -1,4 +1,18 @@
 #[derive(Debug, Clone, PartialEq)]
+pub enum TypeAnn {
+    Number,
+    String,
+    Atom,
+    Array(Box<TypeAnn>),
+    Hash(Vec<(String, TypeAnn)>),
+    Function {
+        params: Vec<TypeAnn>,
+        ret: Box<TypeAnn>,
+    },
+    Any,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Identifier(String),
     Number(f64),
@@ -23,7 +37,8 @@ pub enum Expression {
     },
 
     Function {
-        parameters: Vec<String>,
+        parameters: Vec<(String, Option<TypeAnn>)>,
+        return_type: Option<TypeAnn>,
         body: Vec<Expression>,
     },
     Call {
@@ -40,10 +55,12 @@ pub enum Expression {
 
     Let {
         name: String,
+        type_ann: Option<TypeAnn>,
         value: Box<Expression>,
     },
     Const {
         name: String,
+        type_ann: Option<TypeAnn>,
         value: Box<Expression>,
     },
     Assign {

@@ -144,7 +144,11 @@ impl Compiler {
                 Ok(())
             }
             Expression::Assign { name, value } => self.compile_assign(name, value),
-            Expression::Function { parameters, body } => self.compile_function(parameters, body),
+            Expression::Function {
+                parameters,
+                return_type: _,
+                body,
+            } => self.compile_function(parameters, body),
             Expression::Call {
                 function,
                 arguments,
@@ -166,8 +170,16 @@ impl Compiler {
                 consequence,
                 alternative,
             } => self.compile_if(condition, consequence, alternative),
-            Expression::Let { name, value } => self.compile_binding(name, value, false),
-            Expression::Const { name, value } => self.compile_binding(name, value, true),
+            Expression::Let {
+                name,
+                type_ann: _,
+                value,
+            } => self.compile_binding(name, value, false),
+            Expression::Const {
+                name,
+                type_ann: _,
+                value,
+            } => self.compile_binding(name, value, true),
             Expression::Return(expr) => {
                 self.compile_expression(expr)?;
                 self.emit(Opcode::OpReturnValue, &[]);
@@ -252,14 +264,14 @@ impl Compiler {
 
     fn compile_function(
         &mut self,
-        parameters: &[String],
+        parameters: &[(String, Option<crate::ast::TypeAnn>)],
         body: &[Expression],
     ) -> Result<(), String> {
         let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
 
         fn_compiler.constants = std::mem::take(&mut self.constants);
 
-        for param in parameters {
+        for (param, _type_ann) in parameters {
             fn_compiler.symbol_table.define(param.clone(), false);
         }
         fn_compiler.compile_block(body)?;

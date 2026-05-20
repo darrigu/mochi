@@ -1,4 +1,4 @@
-use crate::ast::{Expression, Program};
+use crate::ast::{Expression, Program, TypeAnn};
 use crate::lexer::{Lexer, Token};
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
@@ -257,6 +257,108 @@ impl Parser {
         })
     }
 
+    fn parse_type_annotation(&mut self) -> Option<TypeAnn> {
+        self.next_token();
+        match &self.current_token {
+            Token::Ident(name) => match name.as_str() {
+                "Number" => Some(TypeAnn::Number),
+                "String" => Some(TypeAnn::String),
+                "Atom" => Some(TypeAnn::Atom),
+                "Any" => Some(TypeAnn::Any),
+                _ => {
+                    self.report_error(format!("Unknown type annotation: '{}'", name));
+                    None
+                }
+            },
+            Token::LBracket => {
+                let inner = self.parse_type_annotation()?;
+                if !self.expect_peek(Token::RBracket) {
+                    return None;
+                }
+                Some(TypeAnn::Array(Box::new(inner)))
+            }
+            Token::LBrace => {
+                self.next_token();
+                let mut fields = vec![];
+
+                if self.current_token == Token::RBrace {
+                    return Some(TypeAnn::Hash(fields));
+                }
+
+                loop {
+                    let key = match &self.current_token {
+                        Token::Ident(name) => name.clone(),
+                        _ => {
+                            self.report_error("Expected identifier for type field".to_string());
+                            return None;
+                        }
+                    };
+
+                    if !self.expect_peek(Token::Colon) {
+                        return None;
+                    }
+
+                    let val_type = self.parse_type_annotation()?;
+                    fields.push((key, val_type));
+
+                    if self.peek_token == Token::Comma {
+                        self.next_token();
+                        self.next_token();
+                        if self.current_token == Token::RBrace {
+                            break;
+                        }
+                    } else if self.peek_token == Token::RBrace {
+                        self.next_token();
+                        break;
+                    } else {
+                        self.report_error("Expected ',' or '}' in hash type".to_string());
+                        return None;
+                    }
+                }
+                Some(TypeAnn::Hash(fields))
+            }
+            Token::Fn => {
+                if !self.expect_peek(Token::LParen) {
+                    return None;
+                }
+
+                let mut params = vec![];
+                if self.peek_token != Token::RParen {
+                    loop {
+                        let param_type = self.parse_type_annotation()?;
+                        params.push(param_type);
+                        if self.peek_token == Token::Comma {
+                            self.next_token();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                if !self.expect_peek(Token::RParen) {
+                    return None;
+                }
+
+                if !self.expect_peek(Token::Colon) {
+                    return None;
+                }
+
+                let ret = self.parse_type_annotation()?;
+                Some(TypeAnn::Function {
+                    params,
+                    ret: Box::new(ret),
+                })
+            }
+            _ => {
+                self.report_error(format!(
+                    "Expected type annotation, got {:?}",
+                    self.current_token
+                ));
+                None
+            }
+        }
+    }
+
     fn parse_let_expression(&mut self) -> Option<Expression> {
         self.next_token();
         let name = match &self.current_token {
@@ -270,6 +372,12 @@ impl Parser {
             }
         };
 
+        let mut type_ann = None;
+        if self.peek_token == Token::Colon {
+            self.next_token();
+            type_ann = self.parse_type_annotation();
+        }
+
         if !self.expect_peek(Token::Assign) {
             self.report_error_with_hint(
                 format!("Expected '=' after variable name '{}'", name),
@@ -282,6 +390,7 @@ impl Parser {
         let value = self.parse_expression(Precedence::Lowest)?;
         Some(Expression::Let {
             name,
+            type_ann,
             value: Box::new(value),
         })
     }
@@ -299,6 +408,12 @@ impl Parser {
             }
         };
 
+        let mut type_ann = None;
+        if self.peek_token == Token::Colon {
+            self.next_token();
+            type_ann = self.parse_type_annotation();
+        }
+
         if !self.expect_peek(Token::Assign) {
             self.report_error_with_hint(
                 format!("Expected '=' after constant name '{}'", name),
@@ -311,6 +426,7 @@ impl Parser {
         let value = self.parse_expression(Precedence::Lowest)?;
         Some(Expression::Const {
             name,
+            type_ann,
             value: Box::new(value),
         })
     }
@@ -365,6 +481,12 @@ impl Parser {
 
         let parameters = self.parse_function_parameters()?;
 
+        let mut return_type = None;
+        if self.peek_token == Token::Colon {
+            self.next_token();
+            return_type = self.parse_type_annotation();
+        }
+
         let body = if self.peek_token == Token::Do {
             self.next_token();
             self.next_token();
@@ -385,11 +507,16 @@ impl Parser {
             vec![self.parse_expression(Precedence::Lowest)?]
         };
 
-        let func = Expression::Function { parameters, body };
+        let func = Expression::Function {
+            parameters,
+            return_type,
+            body,
+        };
 
         if let Some(n) = name {
             Some(Expression::Const {
                 name: n,
+                type_ann: None,
                 value: Box::new(func),
             })
         } else {
@@ -397,7 +524,7 @@ impl Parser {
         }
     }
 
-    fn parse_function_parameters(&mut self) -> Option<Vec<String>> {
+    fn parse_function_parameters(&mut self) -> Option<Vec<(String, Option<TypeAnn>)>> {
         let mut identifiers = vec![];
 
         if self.peek_token == Token::RParen {
@@ -407,14 +534,26 @@ impl Parser {
 
         self.next_token();
         if let Token::Ident(name) = &self.current_token {
-            identifiers.push(name.clone());
+            let name_str = name.clone();
+            let mut type_ann = None;
+            if self.peek_token == Token::Colon {
+                self.next_token();
+                type_ann = self.parse_type_annotation();
+            }
+            identifiers.push((name_str, type_ann));
         }
 
         while self.peek_token == Token::Comma {
             self.next_token();
             self.next_token();
             if let Token::Ident(name) = &self.current_token {
-                identifiers.push(name.clone());
+                let name_str = name.clone();
+                let mut type_ann = None;
+                if self.peek_token == Token::Colon {
+                    self.next_token();
+                    type_ann = self.parse_type_annotation();
+                }
+                identifiers.push((name_str, type_ann));
             }
         }
 

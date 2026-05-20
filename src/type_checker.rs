@@ -1,4 +1,4 @@
-use crate::ast::Expression;
+use crate::ast::{Expression, TypeAnn};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -242,6 +242,58 @@ impl TypeChecker {
         }
     }
 
+    fn map_type_ann(&mut self, ann: &TypeAnn) -> Type {
+        match ann {
+            TypeAnn::Number => Type::Number,
+            TypeAnn::String => Type::String,
+            TypeAnn::Atom => Type::Atom,
+            TypeAnn::Any => Type::Any,
+            TypeAnn::Array(inner) => {
+                let mapped_inner = self.map_type_ann(inner);
+                Type::Array(Rc::new(RefCell::new(mapped_inner)))
+            }
+            TypeAnn::Hash(fields) => {
+                let mut mapped_fields = HashMap::new();
+                for (k, v) in fields {
+                    mapped_fields.insert(k.clone(), self.map_type_ann(v));
+                }
+                Type::Hash(Rc::new(RefCell::new(mapped_fields)))
+            }
+            TypeAnn::Function { params, ret } => {
+                let mapped_params = params.iter().map(|p| self.map_type_ann(p)).collect();
+                let mapped_ret = Box::new(self.map_type_ann(ret));
+                Type::Function {
+                    params: mapped_params,
+                    ret: mapped_ret,
+                }
+            }
+        }
+    }
+
+    pub fn check_expected(
+        &mut self,
+        expr: &Expression,
+        env: &Rc<RefCell<TypeEnv>>,
+        expected: &Type,
+    ) -> Result<Type, String> {
+        let expected = self.find(expected);
+        match (expr, &expected) {
+            (Expression::Array(elements), Type::Array(expected_elem_ty)) => {
+                let expected_elem_ty_inner = expected_elem_ty.borrow().clone();
+                for el in elements {
+                    let el_ty = self.check(el, env)?;
+                    self.unify(&el_ty, &expected_elem_ty_inner)?;
+                }
+                Ok(Type::Array(expected_elem_ty.clone()))
+            }
+            _ => {
+                let val_ty = self.check(expr, env)?;
+                self.unify(&val_ty, &expected)?;
+                Ok(val_ty)
+            }
+        }
+    }
+
     pub fn check(&mut self, expr: &Expression, env: &Rc<RefCell<TypeEnv>>) -> Result<Type, String> {
         match expr {
             Expression::Identifier(name) => {
@@ -354,34 +406,66 @@ impl TypeChecker {
                 }
                 Ok(last_ty)
             }
-            Expression::Let { name, value } => {
-                let val_ty = if let Expression::Function { .. } = &**value {
-                    let placeholder = self.new_var();
+            Expression::Let {
+                name,
+                type_ann,
+                value,
+            } => {
+                let val_ty = if let Some(ann) = type_ann {
+                    let expected_ty = self.map_type_ann(ann);
+                    if let Expression::Function { .. } = &**value {
+                        env.borrow_mut()
+                            .define(name.clone(), expected_ty.clone(), false);
+                    }
+                    let _checked_ty = self.check_expected(value, env, &expected_ty)?;
                     env.borrow_mut()
-                        .define(name.clone(), placeholder.clone(), false);
-                    let actual_ty = self.check(value, env)?;
-                    self.unify(&placeholder, &actual_ty)?;
-                    actual_ty
+                        .define(name.clone(), expected_ty.clone(), false);
+                    expected_ty
                 } else {
-                    self.check(value, env)?
+                    let val_ty = if let Expression::Function { .. } = &**value {
+                        let placeholder = self.new_var();
+                        env.borrow_mut()
+                            .define(name.clone(), placeholder.clone(), false);
+                        let actual_ty = self.check(value, env)?;
+                        self.unify(&placeholder, &actual_ty)?;
+                        actual_ty
+                    } else {
+                        self.check(value, env)?
+                    };
+                    env.borrow_mut().define(name.clone(), val_ty.clone(), false);
+                    val_ty
                 };
-
-                env.borrow_mut().define(name.clone(), val_ty.clone(), false);
                 Ok(val_ty)
             }
-            Expression::Const { name, value } => {
-                let val_ty = if let Expression::Function { .. } = &**value {
-                    let placeholder = self.new_var();
+            Expression::Const {
+                name,
+                type_ann,
+                value,
+            } => {
+                let val_ty = if let Some(ann) = type_ann {
+                    let expected_ty = self.map_type_ann(ann);
+                    if let Expression::Function { .. } = &**value {
+                        env.borrow_mut()
+                            .define(name.clone(), expected_ty.clone(), true);
+                    }
+                    let _checked_ty = self.check_expected(value, env, &expected_ty)?;
                     env.borrow_mut()
-                        .define(name.clone(), placeholder.clone(), true);
-                    let actual_ty = self.check(value, env)?;
-                    self.unify(&placeholder, &actual_ty)?;
-                    actual_ty
+                        .define(name.clone(), expected_ty.clone(), true);
+                    expected_ty
                 } else {
-                    self.check(value, env)?
+                    let val_ty = if let Expression::Function { .. } = &**value {
+                        let placeholder = self.new_var();
+                        env.borrow_mut()
+                            .define(name.clone(), placeholder.clone(), true);
+                        let actual_ty = self.check(value, env)?;
+                        self.unify(&placeholder, &actual_ty)?;
+                        actual_ty
+                    } else {
+                        self.check(value, env)?
+                    };
+                    env.borrow_mut().define(name.clone(), val_ty.clone(), true);
+                    val_ty
                 };
-
-                env.borrow_mut().define(name.clone(), val_ty.clone(), true);
                 Ok(val_ty)
             }
             Expression::Assign { name, value } => {
@@ -406,20 +490,32 @@ impl TypeChecker {
                 }
                 Ok(expr_ty)
             }
-            Expression::Function { parameters, body } => {
+            Expression::Function {
+                parameters,
+                return_type,
+                body,
+            } => {
                 let fn_env = Rc::new(RefCell::new(TypeEnv::new_enclosed(env.clone())));
                 let mut param_types = vec![];
 
-                for param in parameters {
-                    let p_ty = self.new_var();
+                for (param, type_ann) in parameters {
+                    let p_ty = if let Some(ann) = type_ann {
+                        self.map_type_ann(ann)
+                    } else {
+                        self.new_var()
+                    };
                     fn_env
                         .borrow_mut()
                         .define(param.clone(), p_ty.clone(), false);
                     param_types.push(p_ty);
                 }
 
-                let prev_ret = self.current_return_type.take();
-                let expected_ret = self.new_var();
+                let prev_ret = self.current_return_type.clone();
+                let expected_ret = if let Some(ann) = return_type {
+                    self.map_type_ann(ann)
+                } else {
+                    self.new_var()
+                };
                 self.current_return_type = Some(expected_ret.clone());
 
                 let mut body_ty = Type::Atom;
@@ -490,11 +586,8 @@ impl TypeChecker {
                                 },
                             )?;
                         } else {
-                            let mut method_args = checked_args.clone();
-                            method_args[0] = Type::Any;
-
                             let method_ty = Type::Function {
-                                params: method_args,
+                                params: checked_args,
                                 ret: Box::new(ret_ty.clone()),
                             };
                             fields.borrow_mut().insert(method.clone(), method_ty);
@@ -504,7 +597,6 @@ impl TypeChecker {
                     Type::Any => Ok(Type::Any),
                     Type::Var(_) => {
                         let mut fields = HashMap::new();
-
                         let mut method_args = checked_args.clone();
                         method_args[0] = Type::Any;
 
@@ -512,7 +604,6 @@ impl TypeChecker {
                             params: method_args,
                             ret: Box::new(ret_ty.clone()),
                         };
-
                         fields.insert(method.clone(), method_ty);
                         let hash_ty = Type::Hash(Rc::new(RefCell::new(fields)));
                         self.unify(&left_ty, &hash_ty)?;
