@@ -305,6 +305,34 @@ impl Parser {
                     None
                 }
             },
+            Token::LParen => {
+                let mut types = vec![];
+
+                if self.peek_token == Token::RParen {
+                    self.next_token();
+                    return Some(TypeAnn::Tuple(types));
+                }
+
+                loop {
+                    let t = self.parse_type_annotation()?;
+                    types.push(t);
+
+                    if self.peek_token == Token::Comma {
+                        self.next_token();
+                        if self.peek_token == Token::RParen {
+                            self.next_token();
+                            break;
+                        }
+                    } else {
+                        if !self.expect_peek(Token::RParen) {
+                            return None;
+                        }
+                        break;
+                    }
+                }
+
+                Some(TypeAnn::Tuple(types))
+            }
             Token::LBracket => {
                 let inner = self.parse_type_annotation()?;
                 if !self.expect_peek(Token::RBracket) {
@@ -730,12 +758,41 @@ impl Parser {
     }
 
     fn parse_grouped_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
         self.next_token();
-        let expr = self.parse_expression(Precedence::Lowest)?;
-        if !self.expect_peek(Token::RParen) {
-            return None;
+
+        if self.current_token == Token::RParen {
+            let expr = Some(Expression::Tuple(vec![]));
+            return self.wrap(expr, line, col);
         }
-        Some(expr)
+
+        let first_expr = self.parse_expression(Precedence::Lowest)?;
+
+        if self.peek_token == Token::Comma {
+            let mut elements = vec![first_expr];
+            while self.peek_token == Token::Comma {
+                self.next_token();
+                if self.peek_token == Token::RParen {
+                    self.next_token();
+                    let expr = Some(Expression::Tuple(elements));
+                    return self.wrap(expr, line, col);
+                }
+                self.next_token();
+                elements.push(self.parse_expression(Precedence::Lowest)?);
+            }
+
+            if !self.expect_peek(Token::RParen) {
+                return None;
+            }
+            let expr = Some(Expression::Tuple(elements));
+            self.wrap(expr, line, col)
+        } else {
+            if !self.expect_peek(Token::RParen) {
+                return None;
+            }
+            Some(first_expr)
+        }
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expression> {
@@ -1010,10 +1067,9 @@ impl Parser {
     }
 
     fn unwrap_loc(&self, expr: Expression) -> Expression {
-        let mut current = expr;
-        while let Expression::Loc { expr: inner, .. } = current {
-            current = *inner;
+        match expr {
+            Expression::Loc { expr: inner, .. } => self.unwrap_loc(*inner),
+            _ => expr,
         }
-        current
     }
 }

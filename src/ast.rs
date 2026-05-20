@@ -9,6 +9,7 @@ pub enum TypeAnn {
         params: Vec<TypeAnn>,
         ret: Box<TypeAnn>,
     },
+    Tuple(Vec<TypeAnn>),
     Any,
 }
 
@@ -19,6 +20,7 @@ pub enum Expression {
     StringLiteral(String),
     Atom(String),
     Array(Vec<Expression>),
+    Tuple(Vec<Expression>),
 
     Prefix {
         operator: String,

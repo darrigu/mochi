@@ -259,6 +259,19 @@ impl VM {
                                 return Err("Array index must be a number".into());
                             }
                         }
+                        Object::Tuple(elements) => {
+                            if let Object::Number(idx) = index {
+                                let i = idx as usize;
+                                let val = if idx >= 0.0 && i < elements.len() {
+                                    elements[i].clone()
+                                } else {
+                                    Object::Atom("null".to_string())
+                                };
+                                self.push(val)?;
+                            } else {
+                                return Err("Tuple index must be a number".into());
+                            }
+                        }
                         _ => return Err("Index operator not supported on this type".into()),
                     }
                 }
@@ -296,6 +309,7 @@ impl VM {
                                 return Err("Array index must be a number".into());
                             }
                         }
+                        Object::Tuple(_) => return Err("Tuples are immutable".into()),
                         _ => return Err("Property assignment not supported on this type".into()),
                     }
                 }
@@ -323,6 +337,16 @@ impl VM {
                     self.push(func)?;
 
                     self.push(obj)?;
+                }
+
+                Opcode::OpTuple => {
+                    let num_elements = read_u16(&mut frame);
+
+                    let start = self.sp - num_elements;
+                    let tuple_elements = self.stack[start..self.sp].to_vec();
+                    self.sp = start;
+
+                    self.push(Object::Tuple(tuple_elements))?;
                 }
 
                 Opcode::OpAdd | Opcode::OpSub | Opcode::OpMul | Opcode::OpDiv => {

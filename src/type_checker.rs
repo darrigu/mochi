@@ -26,6 +26,7 @@ pub enum Type {
     Array(Rc<RefCell<Type>>),
     Hash(Rc<RefCell<HashMap<String, Type>>>),
     Function { params: Vec<Type>, ret: Box<Type> },
+    Tuple(Vec<Type>),
     Any,
 }
 
@@ -49,6 +50,7 @@ impl PartialEq for Type {
                     ret: r2,
                 },
             ) => p1 == p2 && r1 == r2,
+            (Type::Tuple(t1), Type::Tuple(t2)) => t1 == t2,
             _ => false,
         }
     }
@@ -72,6 +74,14 @@ impl std::fmt::Display for Type {
             Type::Function { params, ret } => {
                 let param_strs: Vec<String> = params.iter().map(|p| p.to_string()).collect();
                 write!(f, "({}) -> {}", param_strs.join(", "), ret)
+            }
+            Type::Tuple(elements) => {
+                let items: Vec<String> = elements.iter().map(|item| item.to_string()).collect();
+                if elements.len() == 1 {
+                    write!(f, "({},)", items[0])
+                } else {
+                    write!(f, "({})", items.join(", "))
+                }
             }
         }
     }
@@ -177,6 +187,10 @@ impl TypeChecker {
                     ret: resolved_ret,
                 }
             }
+            Type::Tuple(elements) => {
+                let resolved_elements = elements.iter().map(|e| self.find(e)).collect();
+                Type::Tuple(resolved_elements)
+            }
             _ => ty.clone(),
         }
     }
@@ -263,6 +277,19 @@ impl TypeChecker {
                 }
                 self.unify(&r1, &r2)
             }
+            (Type::Tuple(elements1), Type::Tuple(elements2)) => {
+                if elements1.len() != elements2.len() {
+                    return Err(format!(
+                        "Tuple size mismatch: expected size {}, got {}",
+                        elements1.len(),
+                        elements2.len()
+                    ));
+                }
+                for (e1, e2) in elements1.iter().zip(elements2.iter()) {
+                    self.unify(e1, e2)?;
+                }
+                Ok(())
+            }
             (Type::Any, _) | (_, Type::Any) => Ok(()),
             (a, b) => Err(format!("Type mismatch: cannot unify '{}' with '{}'", a, b)),
         }
@@ -277,6 +304,7 @@ impl TypeChecker {
             Type::Function { params, ret } => {
                 params.iter().any(|p| self.occurs_in(id, p)) || self.occurs_in(id, &ret)
             }
+            Type::Tuple(elements) => elements.iter().any(|e| self.occurs_in(id, e)),
             _ => false,
         }
     }
@@ -305,6 +333,10 @@ impl TypeChecker {
                     params: mapped_params,
                     ret: mapped_ret,
                 }
+            }
+            TypeAnn::Tuple(elements) => {
+                let mapped_elements = elements.iter().map(|e| self.map_type_ann(e)).collect();
+                Type::Tuple(mapped_elements)
             }
         }
     }
@@ -364,6 +396,20 @@ impl TypeChecker {
                 wrap_err!(self, self.unify(&actual_hash_ty, &expected))?;
 
                 Ok(actual_hash_ty)
+            }
+            (&Expression::Tuple(ref elements), &Type::Tuple(ref expected_elements)) => {
+                if elements.len() != expected_elements.len() {
+                    return self.err(format!(
+                        "Tuple size mismatch: expected size {}, got {}",
+                        expected_elements.len(),
+                        elements.len()
+                    ));
+                }
+                let mut actual_elements = vec![];
+                for (el, expected_el_ty) in elements.iter().zip(expected_elements.iter()) {
+                    actual_elements.push(self.check_expected(el, env, expected_el_ty)?);
+                }
+                Ok(Type::Tuple(actual_elements))
             }
             _ => {
                 let val_ty = self.check(expr, env)?;
@@ -786,8 +832,8 @@ impl TypeChecker {
                     }
                     Type::Hash(fields) => {
                         let static_key = match unwrap_loc(index) {
-                            Expression::StringLiteral(s) => Some(s.clone()),
-                            Expression::Atom(s) => Some(s.clone()),
+                            &Expression::StringLiteral(ref s) => Some(s.clone()),
+                            &Expression::Atom(ref s) => Some(s.clone()),
                             _ => None,
                         };
                         if let Some(key) = static_key {
@@ -818,6 +864,22 @@ impl TypeChecker {
                             Ok(Type::Any)
                         }
                     }
+                    Type::Tuple(elements) => {
+                        wrap_err!(self, self.unify(&index_ty, &Type::Number))?;
+                        let static_idx = match unwrap_loc(index) {
+                            Expression::Number(n) => Some(*n as usize),
+                            _ => None,
+                        };
+                        if let Some(i) = static_idx {
+                            if i < elements.len() {
+                                Ok(elements[i].clone())
+                            } else {
+                                self.err(format!("Tuple index {} out of bounds", i))
+                            }
+                        } else {
+                            Ok(Type::Any)
+                        }
+                    }
                     Type::Any => Ok(Type::Any),
                     other => self.err(format!("Index operator not supported on type '{}'", other)),
                 }
@@ -836,8 +898,8 @@ impl TypeChecker {
                     }
                     Type::Hash(fields) => {
                         let static_key = match unwrap_loc(index) {
-                            Expression::StringLiteral(s) => Some(s.clone()),
-                            Expression::Atom(s) => Some(s.clone()),
+                            &Expression::StringLiteral(ref s) => Some(s.clone()),
+                            &Expression::Atom(ref s) => Some(s.clone()),
                             _ => None,
                         };
                         if let Some(key) = static_key {
@@ -859,7 +921,8 @@ impl TypeChecker {
                             )?;
                         } else {
                             let mut fields = HashMap::new();
-                            if let Expression::StringLiteral(key) | Expression::Atom(key) = &**index
+                            if let &Expression::StringLiteral(ref key)
+                            | &Expression::Atom(ref key) = unwrap_loc(index)
                             {
                                 fields.insert(key.clone(), val_ty.clone());
                             }
@@ -870,6 +933,7 @@ impl TypeChecker {
                         }
                         Ok(val_ty)
                     }
+                    Type::Tuple(_) => self.err("Tuples are immutable".to_string()),
                     Type::Any => Ok(val_ty),
                     other => self.err(format!(
                         "Property assignment not supported on type '{}'",
@@ -947,15 +1011,21 @@ impl TypeChecker {
                 let _body_ty = self.check(body, &loop_env)?;
                 Ok(Type::Atom)
             }
+            Expression::Tuple(elements) => {
+                let mut element_types = vec![];
+                for el in elements {
+                    element_types.push(self.check(el, env)?);
+                }
+                Ok(Type::Tuple(element_types))
+            }
             Expression::Loc { .. } => unreachable!(),
         }
     }
 }
 
 fn unwrap_loc(expr: &Expression) -> &Expression {
-    let mut current = expr;
-    while let Expression::Loc { expr: inner, .. } = current {
-        current = &**inner;
+    match expr {
+        Expression::Loc { expr, .. } => unwrap_loc(expr),
+        _ => expr,
     }
-    current
 }

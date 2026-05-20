@@ -453,6 +453,13 @@ impl Compiler {
                 self.emit_atom("null");
                 Ok(())
             }
+            Expression::Tuple(elements) => {
+                for el in elements {
+                    self.compile_expression(el)?;
+                }
+                self.emit(Opcode::OpTuple, &[elements.len()]);
+                Ok(())
+            }
             Expression::Loc { .. } => unreachable!(),
         }
     }

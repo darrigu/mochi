@@ -20,6 +20,7 @@ pub enum Object {
         free: Vec<Object>,
     },
     Native(fn(Vec<Object>) -> Object),
+    Tuple(Vec<Object>),
 }
 
 impl Default for Object {
@@ -48,6 +49,15 @@ impl std::fmt::Debug for Object {
             Object::Native(_) => write!(f, "<native fn>"),
             Object::CompiledFunction { .. } => write!(f, "<compiled fn>"),
             Object::Closure { .. } => write!(f, "<closure>"),
+            Object::Tuple(elements) => {
+                if elements.len() == 1 {
+                    write!(f, "({:?},)", elements[0])
+                } else {
+                    let items: Vec<String> =
+                        elements.iter().map(|item| format!("{:?}", item)).collect();
+                    write!(f, "({})", items.join(", "))
+                }
+            }
         }
     }
 }

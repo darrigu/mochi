@@ -1,9 +1,13 @@
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use crate::compiler::Compiler;
     use crate::lexer::Lexer;
     use crate::object::Object;
     use crate::parser::Parser;
+    use crate::type_checker::{TypeChecker, TypeEnv};
     use crate::vm::VM;
 
     fn test_script(input: &str, expected: Object) {
@@ -18,8 +22,8 @@ mod tests {
             parser.errors
         );
 
-        let mut checker = crate::type_checker::TypeChecker::new();
-        let env = std::rc::Rc::new(std::cell::RefCell::new(crate::type_checker::TypeEnv::new()));
+        let mut checker = TypeChecker::new();
+        let env = Rc::new(RefCell::new(TypeEnv::new()));
         for expr in &program.expressions {
             if let Err(e) = checker.check(expr, &env) {
                 panic!("Typechecker error for '{}': {}", input, e.message);
@@ -65,8 +69,8 @@ mod tests {
             parser.errors
         );
 
-        let mut checker = crate::type_checker::TypeChecker::new();
-        let env = std::rc::Rc::new(std::cell::RefCell::new(crate::type_checker::TypeEnv::new()));
+        let mut checker = TypeChecker::new();
+        let env = Rc::new(RefCell::new(TypeEnv::new()));
         let mut actual_error = None;
 
         for expr in &program.expressions {
@@ -736,6 +740,21 @@ mod tests {
         test_type_error(
             "const add: fn(x: Number, y: Number): Number = fn(x, y) \"mismatch\"",
             "Type mismatch: cannot unify 'String' with 'Number'",
+        );
+
+        test_script(
+            "const t: (Number, String) = (10, \"hello\") t[1]",
+            Object::String("hello".to_string()),
+        );
+        test_script("let t: (Number,) = (42,) t[0]", Object::Number(42.0));
+
+        test_type_error(
+            "const t: (Number, String) = (10, :false)",
+            "cannot unify 'Atom' with 'String'",
+        );
+        test_type_error(
+            "const t: (Number, String) = (10, \"hello\", 30)",
+            "Tuple size mismatch: expected size 2, got 3",
         );
     }
 
