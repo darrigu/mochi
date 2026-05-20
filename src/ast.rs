@@ -1,4 +1,21 @@
 #[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Wildcard,
+    Identifier(String),
+    Number(f64),
+    StringLiteral(String),
+    Atom(String),
+    Tuple(Vec<Pattern>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchCase {
+    pub pattern: Pattern,
+    pub guard: Option<Expression>,
+    pub body: Expression,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnn {
     Number,
     String,
@@ -97,6 +114,11 @@ pub enum Expression {
         left: Box<Expression>,
         index: Box<Expression>,
         value: Box<Expression>,
+    },
+
+    Match {
+        subject: Box<Expression>,
+        cases: Vec<MatchCase>,
     },
 
     Loc {

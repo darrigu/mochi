@@ -1,4 +1,4 @@
-use crate::ast::{Expression, Program};
+use crate::ast::{Expression, Pattern, Program, TypeAnn};
 use crate::code::{Opcode, make};
 use crate::error_reporter::Diagnostic;
 use crate::object::Object;
@@ -460,6 +460,54 @@ impl Compiler {
                 self.emit(Opcode::OpTuple, &[elements.len()]);
                 Ok(())
             }
+            Expression::Match { subject, cases } => {
+                let start_pos_id = self.instructions.len();
+                let subject_sym = self
+                    .symbol_table
+                    .define(format!("_subject_{}", start_pos_id), false);
+
+                self.compile_expression(subject)?;
+                self.emit_set(&subject_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                let mut jump_end_offsets = vec![];
+
+                for case in cases {
+                    let mut jump_next_offsets = vec![];
+
+                    self.compile_pattern_elements(
+                        &case.pattern,
+                        &subject_sym,
+                        &[],
+                        &mut jump_next_offsets,
+                    )?;
+
+                    if let Some(guard_expr) = &case.guard {
+                        self.compile_expression(guard_expr)?;
+                        let offset = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+                        jump_next_offsets.push(offset);
+                    }
+
+                    self.compile_expression(&case.body)?;
+
+                    let end_offset = self.emit(Opcode::OpJump, &[9999]);
+                    jump_end_offsets.push(end_offset);
+
+                    let next_case_start = self.instructions.len();
+                    for offset in jump_next_offsets {
+                        self.change_operand(offset, next_case_start);
+                    }
+                }
+
+                self.emit_atom("null");
+
+                let end_of_match = self.instructions.len();
+                for offset in jump_end_offsets {
+                    self.change_operand(offset, end_of_match);
+                }
+
+                Ok(())
+            }
             Expression::Loc { .. } => unreachable!(),
         }
     }
@@ -483,7 +531,7 @@ impl Compiler {
 
     fn compile_function(
         &mut self,
-        parameters: &[(String, Option<crate::ast::TypeAnn>)],
+        parameters: &[(String, Option<TypeAnn>)],
         body: &[Expression],
     ) -> Result<(), Diagnostic> {
         let mut fn_compiler = Compiler::new_with_state(self.symbol_table.clone());
@@ -620,6 +668,73 @@ impl Compiler {
             self.compile_expression(expr)?;
             if i != expressions.len() - 1 {
                 self.emit(Opcode::OpPop, &[]);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_access_path(&mut self, subject_sym: &Symbol, path: &[usize]) {
+        self.emit_get(subject_sym);
+        for idx in path {
+            let idx_pos = self.add_constant(Object::Number(*idx as f64));
+            self.emit(Opcode::OpConstant, &[idx_pos]);
+            self.emit(Opcode::OpIndex, &[]);
+        }
+    }
+
+    fn compile_pattern_elements(
+        &mut self,
+        pattern: &Pattern,
+        subject_sym: &Symbol,
+        path: &[usize],
+        jump_next_offsets: &mut Vec<usize>,
+    ) -> Result<(), Diagnostic> {
+        match pattern {
+            Pattern::Wildcard => {}
+            Pattern::Identifier(name) => {
+                let var_sym = self.symbol_table.define(name.clone(), false);
+                self.emit_access_path(subject_sym, path);
+                self.emit_set(&var_sym);
+                self.emit(Opcode::OpPop, &[]);
+            }
+            Pattern::Number(val) => {
+                self.emit_access_path(subject_sym, path);
+                let const_pos = self.add_constant(Object::Number(*val));
+                self.emit(Opcode::OpConstant, &[const_pos]);
+                self.emit(Opcode::OpEqual, &[]);
+                let offset = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+                jump_next_offsets.push(offset);
+            }
+            Pattern::StringLiteral(val) => {
+                self.emit_access_path(subject_sym, path);
+                let const_pos = self.add_constant(Object::String(val.clone()));
+                self.emit(Opcode::OpConstant, &[const_pos]);
+                self.emit(Opcode::OpEqual, &[]);
+                let offset = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+                jump_next_offsets.push(offset);
+            }
+            Pattern::Atom(name) => {
+                self.emit_access_path(subject_sym, path);
+                let const_pos = self.add_constant(Object::Atom(name.clone()));
+                self.emit(Opcode::OpConstant, &[const_pos]);
+                self.emit(Opcode::OpEqual, &[]);
+                let offset = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+                jump_next_offsets.push(offset);
+            }
+            Pattern::Tuple(elements) => {
+                self.emit_access_path(subject_sym, path);
+                self.emit(Opcode::OpTupleLen, &[]);
+                let size_pos = self.add_constant(Object::Number(elements.len() as f64));
+                self.emit(Opcode::OpConstant, &[size_pos]);
+                self.emit(Opcode::OpEqual, &[]);
+                let offset = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+                jump_next_offsets.push(offset);
+
+                for (i, el) in elements.iter().enumerate() {
+                    let mut new_path = path.to_vec();
+                    new_path.push(i);
+                    self.compile_pattern_elements(el, subject_sym, &new_path, jump_next_offsets)?;
+                }
             }
         }
         Ok(())

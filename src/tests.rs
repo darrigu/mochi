@@ -1,13 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
     use crate::compiler::Compiler;
     use crate::lexer::Lexer;
     use crate::object::Object;
     use crate::parser::Parser;
-    use crate::type_checker::{TypeChecker, TypeEnv};
+    use crate::type_checker::TypeChecker;
     use crate::vm::VM;
 
     fn test_script(input: &str, expected: Object) {
@@ -23,9 +20,9 @@ mod tests {
         );
 
         let mut checker = TypeChecker::new();
-        let env = Rc::new(RefCell::new(TypeEnv::new()));
+        let env = checker.new_env();
         for expr in &program.expressions {
-            if let Err(e) = checker.check(expr, &env) {
+            if let Err(e) = checker.check(expr, env) {
                 panic!("Typechecker error for '{}': {}", input, e.message);
             }
         }
@@ -70,11 +67,11 @@ mod tests {
         );
 
         let mut checker = TypeChecker::new();
-        let env = Rc::new(RefCell::new(TypeEnv::new()));
+        let env = checker.new_env();
         let mut actual_error = None;
 
         for expr in &program.expressions {
-            if let Err(e) = checker.check(expr, &env) {
+            if let Err(e) = checker.check(expr, env) {
                 actual_error = Some(e.message);
                 break;
             }
@@ -808,6 +805,63 @@ mod tests {
         test_type_error(
             "const list: [String] = [\"a\"] let sum: Number = 0 for x in list do sum = sum + x end",
             "cannot unify 'Number' with 'String'",
+        );
+    }
+
+    #[test]
+    fn test_pattern_matching_literals() {
+        let input = "
+            fn classify(x) match x
+                | 1 \"one\"
+                | 2 \"two\"
+                | _ \"other\"
+            classify(2)
+        ";
+        test_script(input, Object::String("two".to_string()));
+    }
+
+    #[test]
+    fn test_pattern_matching_guards() {
+        let input = "
+            fn tier(score) match score
+                | v when v > 90 \"A\"
+                | v when v > 70 \"B\"
+                | v             \"C\"
+            tier(85)
+        ";
+        test_script(input, Object::String("B".to_string()));
+    }
+
+    #[test]
+    fn test_pattern_matching_tuples() {
+        let input = "
+            fn safe_div(a, b) do
+                if b == 0 do
+                    return (:err, \"division by zero\")
+                else
+                    return (:ok, a / b)
+                end
+            end
+            
+            fn handle_div(a, b) match safe_div(a, b)
+                | (:ok, v) v
+                | (:err, e) 999
+            
+            handle_div(10, 0)
+        ";
+        test_script(input, Object::Number(999.0));
+    }
+
+    #[test]
+    fn test_pattern_matching_type_safety() {
+        test_script(
+            "const t: (Atom, Number) = (:ok, 42) match t | (:ok, v) v | (:err, e) 0",
+            Object::Number(42.0),
+        );
+
+        test_type_error(
+            "const t: (Atom, String) = (:ok, \"hello\") match t | (:ok, v) v + 1 | _ 0",
+            "cannot unify 'String' with 'Number'",
         );
     }
 }

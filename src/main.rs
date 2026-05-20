@@ -41,9 +41,9 @@ fn compile_source(source: &str) -> Bytecode {
     }
 
     let mut checker = type_checker::TypeChecker::new();
-    let env = std::rc::Rc::new(std::cell::RefCell::new(type_checker::TypeEnv::new()));
+    let env = checker.new_env();
     for expr in &program.expressions {
-        if let Err(e) = checker.check(expr, &env) {
+        if let Err(e) = checker.check(expr, env) {
             error_reporter::report_errors(source, &[e]);
             process::exit(1);
         }

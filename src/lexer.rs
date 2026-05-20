@@ -12,6 +12,9 @@ pub enum Token {
     While,
     For,
     In,
+    Match,
+    When,
+    Pipe,
     Ident(String),
     Number(f64),
     StringLiteral(String),
@@ -86,6 +89,7 @@ impl Lexer {
         let tok_col = self.col;
 
         let token = match self.ch {
+            '|' => Token::Pipe,
             '+' => Token::Plus,
             '-' => Token::Minus,
             '*' => Token::Star,
@@ -120,7 +124,7 @@ impl Lexer {
             '"' => Token::StringLiteral(self.read_string()),
             '\0' => Token::EOF,
             _ => {
-                if self.ch.is_alphabetic() {
+                if self.ch.is_alphabetic() || self.ch == '_' {
                     let ident = self.read_identifier();
                     return (self.lookup_ident(&ident), tok_line, tok_col);
                 } else if self.ch.is_numeric() {
@@ -201,6 +205,8 @@ impl Lexer {
             "while" => Token::While,
             "for" => Token::For,
             "in" => Token::In,
+            "match" => Token::Match,
+            "when" => Token::When,
             _ => Token::Ident(ident.to_string()),
         }
     }

@@ -348,6 +348,17 @@ impl VM {
 
                     self.push(Object::Tuple(tuple_elements))?;
                 }
+                Opcode::OpTupleLen => {
+                    let val = self.pop();
+                    match val {
+                        Object::Tuple(elements) => {
+                            self.push(Object::Number(elements.len() as f64))?;
+                        }
+                        _ => {
+                            self.push(Object::Number(-1.0))?;
+                        }
+                    }
+                }
 
                 Opcode::OpAdd | Opcode::OpSub | Opcode::OpMul | Opcode::OpDiv => {
                     self.execute_binary_operation(op)?

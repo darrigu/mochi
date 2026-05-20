@@ -1,4 +1,4 @@
-use crate::ast::{Expression, Program, TypeAnn};
+use crate::ast::{Expression, MatchCase, Pattern, Program, TypeAnn};
 use crate::error_reporter::Diagnostic;
 use crate::lexer::{Lexer, Token};
 
@@ -126,6 +126,7 @@ impl Parser {
             Token::Loop => self.parse_loop_expression(),
             Token::While => self.parse_while_expression(),
             Token::For => self.parse_for_expression(),
+            Token::Match => self.parse_match_expression(),
             _ => {
                 self.report_error();
                 None
@@ -1012,6 +1013,115 @@ impl Parser {
             });
             self.wrap(expr, line, col)
         }
+    }
+
+    fn parse_pattern(&mut self) -> Option<Pattern> {
+        match &self.current_token {
+            Token::Ident(name) => {
+                if name == "_" {
+                    Some(Pattern::Wildcard)
+                } else {
+                    Some(Pattern::Identifier(name.clone()))
+                }
+            }
+            Token::Number(val) => Some(Pattern::Number(*val)),
+            Token::StringLiteral(val) => Some(Pattern::StringLiteral(val.clone())),
+            Token::Colon => {
+                let name_opt = if let Token::Ident(name) = &self.peek_token {
+                    Some(name.clone())
+                } else {
+                    None
+                };
+
+                if let Some(name) = name_opt {
+                    self.next_token();
+                    Some(Pattern::Atom(name))
+                } else {
+                    self.report_error_with_msg(
+                        "Expected identifier after ':' in pattern".to_string(),
+                    );
+                    None
+                }
+            }
+            Token::LParen => {
+                self.next_token();
+
+                let mut elements = vec![];
+                if self.current_token == Token::RParen {
+                    return Some(Pattern::Tuple(elements));
+                }
+
+                loop {
+                    let pat = self.parse_pattern()?;
+                    elements.push(pat);
+                    if self.peek_token == Token::Comma {
+                        self.next_token();
+                        if self.peek_token == Token::RParen {
+                            self.next_token();
+                            break;
+                        }
+                        self.next_token();
+                    } else {
+                        if !self.expect_peek(Token::RParen) {
+                            return None;
+                        }
+                        break;
+                    }
+                }
+                Some(Pattern::Tuple(elements))
+            }
+            _ => {
+                self.report_error_with_msg(format!(
+                    "Invalid pattern, got {:?}",
+                    self.current_token
+                ));
+                None
+            }
+        }
+    }
+
+    fn parse_match_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        self.next_token();
+
+        let subject = self.parse_expression(Precedence::Lowest)?;
+        let mut cases = vec![];
+
+        while self.peek_token == Token::Pipe {
+            self.next_token();
+            self.next_token();
+            let pattern = self.parse_pattern()?;
+
+            let mut guard = None;
+            if self.peek_token == Token::When {
+                self.next_token();
+                self.next_token();
+                guard = Some(self.parse_expression(Precedence::Lowest)?);
+            }
+
+            self.next_token();
+            let body = self.parse_expression(Precedence::Lowest)?;
+
+            cases.push(MatchCase {
+                pattern,
+                guard,
+                body,
+            });
+        }
+
+        if cases.is_empty() {
+            self.report_error_with_msg(
+                "Match expression must contain at least one branch".to_string(),
+            );
+            return None;
+        }
+
+        let expr = Some(Expression::Match {
+            subject: Box::new(subject),
+            cases,
+        });
+        self.wrap(expr, line, col)
     }
 
     fn token_precedence(token: &Token) -> Precedence {
