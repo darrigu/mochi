@@ -86,7 +86,7 @@ fn deserialize_object(bytes: &[u8], offset: &mut usize) -> Result<Object, String
         1 | 2 => {
             let len = read_u32(bytes, offset)?;
             let s = String::from_utf8(bytes[*offset..*offset + len].to_vec())
-                .map_err(|_| "Invalid UTF-8 in string/symbol".to_string())?;
+                .map_err(|_| "Invalid UTF-8 in string/atom".to_string())?;
             *offset += len;
 
             if tag == 1 {
