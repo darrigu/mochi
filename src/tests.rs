@@ -864,4 +864,60 @@ mod tests {
             "cannot unify 'String' with 'Number'",
         );
     }
+
+    #[test]
+    fn test_question_operator() {
+        let input = "
+            fn safe_div(a, b) do
+                if b == 0 do
+                    return (:err, \"division by zero\")
+                else
+                    return (:ok, a / b)
+                end
+            end
+            
+            fn handle_div(a, b) do
+                let val = safe_div(a, b)?
+                return (:ok, val * 2)
+            end
+            
+            handle_div(10, 2)
+        ";
+        test_script(
+            input,
+            Object::Tuple(vec![Object::Atom("ok".to_string()), Object::Number(10.0)]),
+        );
+
+        let input2 = "
+            fn safe_div(a, b) do
+                if b == 0 do
+                    return (:err, \"division by zero\")
+                else
+                    return (:ok, a / b)
+                end
+            end
+            
+            fn handle_div(a, b) do
+                let val = safe_div(a, b)?
+                return (:ok, val * 2)
+            end
+            
+            handle_div(10, 0)
+        ";
+        test_script(
+            input2,
+            Object::Tuple(vec![
+                Object::Atom("err".to_string()),
+                Object::String("division by zero".to_string()),
+            ]),
+        );
+    }
+
+    #[test]
+    fn test_question_operator_type_safety() {
+        test_type_error(
+            "fn check() do let x = 5? end",
+            "Question operator '?' cannot be applied to type 'Number'",
+        );
+    }
 }

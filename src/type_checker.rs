@@ -1205,6 +1205,51 @@ impl TypeChecker {
 
                 Ok(self.find_deep(ret_ty))
             }
+            Expression::Question(inner) => {
+                let val_ty = self.check(inner, env)?;
+                let resolved = self.find_deep(val_ty);
+
+                match self.get_type(resolved).clone() {
+                    Type::Tuple(elements) => {
+                        if elements.len() != 2 {
+                            return self.err(
+                                "Question operator '?' can only be applied to 2-element tuples"
+                                    .to_string(),
+                            );
+                        }
+                        let atom_ty = self.alloc_type(Type::Atom);
+                        wrap_err!(self, self.unify(elements[0], atom_ty))?;
+
+                        if let Some(expected_ret) = self.current_return_type {
+                            wrap_err!(self, self.unify(val_ty, expected_ret))?;
+                        }
+
+                        Ok(elements[1])
+                    }
+                    Type::Any => Ok(self.alloc_type(Type::Any)),
+                    Type::Var(_) => {
+                        let tag_ty = self.alloc_type(Type::Atom);
+                        let ret_var = self.new_var();
+                        let ret_ty = self.alloc_type(ret_var);
+                        let tuple_ty = self.alloc_type(Type::Tuple(vec![tag_ty, ret_ty]));
+
+                        wrap_err!(self, self.unify(val_ty, tuple_ty))?;
+
+                        if let Some(expected_ret) = self.current_return_type {
+                            wrap_err!(self, self.unify(tuple_ty, expected_ret))?;
+                        }
+
+                        Ok(ret_ty)
+                    }
+                    _other => {
+                        let ty_str = self.type_to_string(resolved);
+                        self.err(format!(
+                            "Question operator '?' cannot be applied to type '{}'",
+                            ty_str
+                        ))
+                    }
+                }
+            }
             Expression::Loc { .. } => unreachable!(),
         }
     }

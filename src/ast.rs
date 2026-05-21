@@ -121,6 +121,8 @@ pub enum Expression {
         cases: Vec<MatchCase>,
     },
 
+    Question(Box<Expression>),
+
     Loc {
         line: usize,
         col: usize,

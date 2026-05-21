@@ -37,6 +37,7 @@ pub enum Token {
     Comma,
     Dot,
     Colon,
+    Question,
     Illegal(char),
     EOF,
 }
@@ -105,6 +106,7 @@ impl Lexer {
             ':' => Token::Colon,
             '>' => Token::Greater,
             '<' => Token::Less,
+            '?' => Token::Question,
             '=' => {
                 if self.peek_char() == '=' {
                     self.read_char();

@@ -508,6 +508,43 @@ impl Compiler {
 
                 Ok(())
             }
+            Expression::Question(inner) => {
+                let start_pos_id = self.instructions.len();
+                let res_sym = self
+                    .symbol_table
+                    .define(format!("_res_{}", start_pos_id), false);
+
+                self.compile_expression(inner)?;
+                self.emit_set(&res_sym);
+                self.emit(Opcode::OpPop, &[]);
+
+                self.emit_get(&res_sym);
+                let zero_pos = self.add_constant(Object::Number(0.0));
+                self.emit(Opcode::OpConstant, &[zero_pos]);
+                self.emit(Opcode::OpIndex, &[]);
+
+                let ok_pos = self.add_constant(Object::Atom("ok".to_string()));
+                self.emit(Opcode::OpConstant, &[ok_pos]);
+                self.emit(Opcode::OpEqual, &[]);
+
+                let jump_fail_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+
+                self.emit_get(&res_sym);
+                let one_pos = self.add_constant(Object::Number(1.0));
+                self.emit(Opcode::OpConstant, &[one_pos]);
+                self.emit(Opcode::OpIndex, &[]);
+                let jump_end_pos = self.emit(Opcode::OpJump, &[9999]);
+
+                let fail_start = self.instructions.len();
+                self.change_operand(jump_fail_pos, fail_start);
+                self.emit_get(&res_sym);
+                self.emit(Opcode::OpReturnValue, &[]);
+
+                let end_start = self.instructions.len();
+                self.change_operand(jump_end_pos, end_start);
+
+                Ok(())
+            }
             Expression::Loc { .. } => unreachable!(),
         }
     }

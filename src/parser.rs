@@ -827,6 +827,10 @@ impl Parser {
         if self.current_token == Token::Dot {
             return self.parse_dot_expression(left);
         }
+        if self.current_token == Token::Question {
+            let expr = Some(Expression::Question(Box::new(left)));
+            return self.wrap(expr, line, col);
+        }
         if self.current_token == Token::Colon {
             self.next_token();
             let method = match &self.current_token {
@@ -1130,7 +1134,9 @@ impl Parser {
             Token::Greater | Token::Less => Precedence::LessGreater,
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Star | Token::Slash => Precedence::Product,
-            Token::LParen | Token::LBracket | Token::Dot | Token::Colon => Precedence::Call,
+            Token::LParen | Token::LBracket | Token::Dot | Token::Colon | Token::Question => {
+                Precedence::Call
+            }
             Token::Assign => Precedence::Assign,
             _ => Precedence::Lowest,
         }
@@ -1152,6 +1158,7 @@ impl Parser {
                 | Token::LBracket
                 | Token::Dot
                 | Token::Colon
+                | Token::Question
         )
     }
 
