@@ -1,0 +1,4 @@
+let math = import "math.moc"
+
+print(math.add(10, 5))
+print(math.sub(10, 5))

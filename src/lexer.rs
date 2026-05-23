@@ -17,6 +17,7 @@ pub enum Token {
     Pipe,
     Break,
     Continue,
+    Import,
     Ident(String),
     Number(f64),
     StringLiteral(String),
@@ -213,6 +214,7 @@ impl Lexer {
             "when" => Token::When,
             "break" => Token::Break,
             "continue" => Token::Continue,
+            "import" => Token::Import,
             _ => Token::Ident(ident.to_string()),
         }
     }

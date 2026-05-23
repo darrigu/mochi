@@ -1224,6 +1224,11 @@ impl TypeChecker {
                     }
                 }
             }
+            Expression::Import(path) => {
+                let str_ty = self.alloc_type(Type::String);
+                self.check_expected(path, env, str_ty)?;
+                Ok(self.alloc_type(Type::Any))
+            }
             Expression::Break(val_opt) => {
                 if let Some(val) = val_opt {
                     let _val_ty = self.check(val, env)?;

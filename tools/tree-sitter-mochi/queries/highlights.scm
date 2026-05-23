@@ -1,46 +1,84 @@
+(identifier) @variable
+
+(const_expression name: (identifier) @constant)
+
+(wildcard_pattern) @variable.builtin
+
+(parameter name: (identifier) @variable.parameter)
+(function_type_parameter (identifier) @variable.parameter)
+
+(member_expression property: (identifier) @variable.other.member)
+(hash_pair key: (identifier) @variable.other.member)
+(hash_type_field key: (identifier) @variable.other.member)
+
+(function_definition name: (identifier) @function)
+
+(call_expression function: (identifier) @function)
+(call_expression function: (member_expression property: (identifier) @function))
+
+(method_call method: (identifier) @function.method)
+
+[
+  "let"
+  "const"
+] @keyword.storage
+
+[
+  "fn"
+] @keyword.function
+
 [
   "if"
   "else"
   "do"
   "end"
-  "fn"
+  "loop"
+  "while"
+  "for"
+  "in"
+  "match"
+  "when"
   "return"
-  "let"
-  "const"
-] @keyword
+  "break"
+  "continue"
+  "import"
+] @keyword.control
 
-(number) @constant.numeric
+(primitive_type) @type.builtin
+(custom_type) @type
+
+(number) @number
 (string) @string
-(atom) @string.special.symbol
-
+(atom (identifier) @string.special.symbol)
 (comment) @comment
 
 [
-  "+" "-" "*" "/" 
-  "==" "!=" "<" ">" 
-  "=" "!"
+  "+"
+  "-"
+  "*"
+  "/"
+  "=="
+  "!="
+  ">"
+  "<"
+  "="
+  "?"
+  "!"
 ] @operator
 
 [
-  "(" ")"
-  "{" "}"
-  "[" "]"
+  "("
+  ")"
+  "["
+  "]"
+  "{"
+  "}"
 ] @punctuation.bracket
 
 [
-  "," "." ":"
+  ","
+  "."
+  ":"
+  "|"
 ] @punctuation.delimiter
-
-(function_expression name: (identifier) @function)
-
-(call_expression function: (identifier) @function.call)
-(method_call_expression method: (atom) @function.method)
-
-(let_expression name: (identifier) @variable)
-(const_expression name: (identifier) @variable)
-
-(dot_expression property: (identifier) @property)
-
-(hash_pair key: (identifier) @property)
-
-(identifier) @variable
+(atom ":" @string.special.symbol)

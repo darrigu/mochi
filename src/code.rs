@@ -33,6 +33,7 @@ pub enum Opcode {
     OpHashKeys = 29,
     OpTuple = 30,
     OpTupleLen = 31,
+    OpImport = 32,
 }
 
 impl From<u8> for Opcode {
@@ -70,6 +71,7 @@ impl From<u8> for Opcode {
             29 => Opcode::OpHashKeys,
             30 => Opcode::OpTuple,
             31 => Opcode::OpTupleLen,
+            32 => Opcode::OpImport,
             _ => panic!("Unknown Opcode: {}", val),
         }
     }

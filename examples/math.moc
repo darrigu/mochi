@@ -1,0 +1,4 @@
+fn add(a, b) do return a + b end
+fn sub(a, b) do return a - b end
+
+{ add: add, sub: sub }

@@ -1,4 +1,6 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -24,6 +26,9 @@ pub struct VM {
     globals: Vec<Object>,
     pub constants: Vec<Object>,
     pub last_popped_stack_elem: Option<Object>,
+    pub loaded_modules: HashMap<String, Object>,
+    pub import_handler: Option<fn(&str) -> Result<Object, String>>,
+    pub current_dir: PathBuf,
 }
 
 #[inline]
@@ -65,6 +70,9 @@ impl VM {
             globals: vec![Object::Number(0.0); GLOBALS_SIZE],
             constants: bytecode.constants,
             last_popped_stack_elem: None,
+            loaded_modules: HashMap::new(),
+            import_handler: None,
+            current_dir: PathBuf::from("."),
         }
     }
 
@@ -349,6 +357,31 @@ impl VM {
                         _ => {
                             self.push(Object::Number(-1.0))?;
                         }
+                    }
+                }
+
+                Opcode::OpImport => {
+                    let path_obj = self.pop();
+                    if let Object::String(path) = path_obj {
+                        let raw_path = self.current_dir.join(&path);
+
+                        let resolved_path_str = std::fs::canonicalize(&raw_path)
+                            .unwrap_or(raw_path)
+                            .to_string_lossy()
+                            .into_owned();
+
+                        if let Some(module) = self.loaded_modules.get(&resolved_path_str) {
+                            self.push(module.clone())?;
+                        } else if let Some(handler) = self.import_handler {
+                            let module_obj = handler(&resolved_path_str)?;
+                            self.loaded_modules
+                                .insert(resolved_path_str, module_obj.clone());
+                            self.push(module_obj)?;
+                        } else {
+                            return Err("Imports are not supported in this environment".into());
+                        }
+                    } else {
+                        return Err("Import path must be a string".into());
                     }
                 }
 

@@ -129,6 +129,7 @@ impl Parser {
             Token::Match => self.parse_match_expression(),
             Token::Break => self.parse_break_expression(),
             Token::Continue => self.parse_continue_expression(),
+            Token::Import => self.parse_import_expression(),
             _ => {
                 self.report_error();
                 None
@@ -1162,6 +1163,16 @@ impl Parser {
         let line = self.cur_line;
         let col = self.cur_col;
         self.wrap(Some(Expression::Continue), line, col)
+    }
+
+    fn parse_import_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        self.next_token();
+
+        let path = self.parse_expression(Precedence::Lowest)?;
+        let expr = Some(Expression::Import(Box::new(path)));
+        self.wrap(expr, line, col)
     }
 
     fn token_precedence(token: &Token) -> Precedence {

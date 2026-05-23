@@ -672,6 +672,11 @@ impl Compiler {
 
                 Ok(())
             }
+            Expression::Import(path) => {
+                self.compile_expression(path)?;
+                self.emit(Opcode::OpImport, &[]);
+                Ok(())
+            }
             Expression::Loc { .. } => unreachable!(),
         }
     }
