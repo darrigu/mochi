@@ -41,6 +41,14 @@ fn read_u8(frame: &mut Frame) -> usize {
     val
 }
 
+#[inline]
+fn to_key_string(obj: &Object) -> String {
+    match obj {
+        Object::String(s) | Object::Atom(s) => s.clone(),
+        other => format!("{:?}", other),
+    }
+}
+
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
         let main_frame = Frame {
@@ -196,11 +204,7 @@ impl VM {
                     temp.reverse();
 
                     for i in (0..temp.len()).step_by(2) {
-                        let key_str = match &temp[i] {
-                            Object::String(s) | Object::Atom(s) => s.clone(),
-                            other => format!("{:?}", other),
-                        };
-                        hash.insert(key_str, temp[i + 1].clone());
+                        hash.insert(to_key_string(&temp[i]), temp[i + 1].clone());
                     }
 
                     self.push(Object::Hash(Rc::new(RefCell::new(hash))))?;
@@ -235,13 +239,9 @@ impl VM {
 
                     match left {
                         Object::Hash(hash) => {
-                            let key_str = match index {
-                                Object::String(s) | Object::Atom(s) => s.clone(),
-                                other => format!("{:?}", other),
-                            };
                             let val = hash
                                 .borrow()
-                                .get(&key_str)
+                                .get(&to_key_string(&index))
                                 .cloned()
                                 .unwrap_or(Object::Atom("null".to_string()));
                             self.push(val)?;
@@ -282,11 +282,8 @@ impl VM {
 
                     match left {
                         Object::Hash(hash) => {
-                            let key_str = match index {
-                                Object::String(s) | Object::Atom(s) => s.clone(),
-                                other => format!("{:?}", other),
-                            };
-                            hash.borrow_mut().insert(key_str, value.clone());
+                            hash.borrow_mut()
+                                .insert(to_key_string(&index), value.clone());
                             self.push(value)?;
                         }
                         Object::Array(arr) => {
@@ -321,16 +318,11 @@ impl VM {
                     let obj = self.pop();
 
                     let func = match &obj {
-                        Object::Hash(hash) => {
-                            let key_str = match method_name {
-                                Object::String(s) | Object::Atom(s) => s,
-                                other => format!("{:?}", other),
-                            };
-                            hash.borrow()
-                                .get(&key_str)
-                                .cloned()
-                                .unwrap_or(Object::Atom("null".to_string()))
-                        }
+                        Object::Hash(hash) => hash
+                            .borrow()
+                            .get(&to_key_string(&method_name))
+                            .cloned()
+                            .unwrap_or(Object::Atom("null".to_string())),
                         _ => return Err("Method calls only supported on objects".into()),
                     };
 

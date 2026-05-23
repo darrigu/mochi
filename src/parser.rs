@@ -326,10 +326,9 @@ impl Parser {
                             self.next_token();
                             break;
                         }
+                    } else if !self.expect_peek(Token::RParen) {
+                        return None;
                     } else {
-                        if !self.expect_peek(Token::RParen) {
-                            return None;
-                        }
                         break;
                     }
                 }
@@ -565,9 +564,11 @@ impl Parser {
         let line = self.cur_line;
         let col = self.cur_col;
         let mut name = None;
-        if let Token::Ident(n) = &self.peek_token.clone() {
-            self.next_token();
+        if let Token::Ident(n) = &self.peek_token {
             name = Some(n.clone());
+        }
+        if name.is_some() {
+            self.next_token();
         }
 
         if !self.expect_peek(Token::LParen) {
@@ -1069,10 +1070,9 @@ impl Parser {
                             break;
                         }
                         self.next_token();
+                    } else if !self.expect_peek(Token::RParen) {
+                        return None;
                     } else {
-                        if !self.expect_peek(Token::RParen) {
-                            return None;
-                        }
                         break;
                     }
                 }

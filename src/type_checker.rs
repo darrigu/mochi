@@ -250,19 +250,17 @@ impl TypeChecker {
                 }
 
                 if is_subset_1_in_2 {
-                    let mut merged = fields1.clone();
-                    for k in keys2.difference(&keys1) {
-                        let v2 = *fields2.get(k).unwrap();
-                        merged.insert(k.clone(), v2);
+                    let mut merged = fields1;
+                    for (k, v) in fields2 {
+                        merged.entry(k).or_insert(v);
                     }
                     if let Type::Hash(f1) = self.get_type_mut(t1) {
                         *f1 = merged;
                     }
                 } else if is_subset_2_in_1 {
-                    let mut merged = fields2.clone();
-                    for k in keys1.difference(&keys2) {
-                        let v1 = *fields1.get(k).unwrap();
-                        merged.insert(k.clone(), v1);
+                    let mut merged = fields2;
+                    for (k, v) in fields1 {
+                        merged.entry(k).or_insert(v);
                     }
                     if let Type::Hash(f2) = self.get_type_mut(t2) {
                         *f2 = merged;
@@ -726,60 +724,36 @@ impl TypeChecker {
                 name,
                 type_ann,
                 value,
-            } => {
-                if let Some(ann) = type_ann {
-                    let expected_ty = self.map_type_ann(ann);
-                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
-                        self.define_var(env, name.clone(), expected_ty, false);
-                        self.check_expected(value, env, expected_ty)?
-                    } else {
-                        self.check_expected(value, env, expected_ty)?
-                    };
-                    self.define_var(env, name.clone(), expected_ty, false);
-                    Ok(val_ty)
-                } else {
-                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
-                        let placeholder_var = self.new_var();
-                        let placeholder = self.alloc_type(placeholder_var);
-                        self.define_var(env, name.clone(), placeholder, false);
-                        let actual_ty = self.check(value, env)?;
-                        wrap_err!(self, self.unify(placeholder, actual_ty))?;
-                        actual_ty
-                    } else {
-                        self.check(value, env)?
-                    };
-                    self.define_var(env, name.clone(), val_ty, false);
-                    Ok(val_ty)
-                }
             }
-            Expression::Const {
+            | Expression::Const {
                 name,
                 type_ann,
                 value,
             } => {
+                let is_const = matches!(unwrap_loc(expr), Expression::Const { .. });
+
                 if let Some(ann) = type_ann {
                     let expected_ty = self.map_type_ann(ann);
-                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
-                        self.define_var(env, name.clone(), expected_ty, true);
-                        self.check_expected(value, env, expected_ty)?
-                    } else {
-                        self.check_expected(value, env, expected_ty)?
-                    };
-                    self.define_var(env, name.clone(), expected_ty, true);
+                    if let Expression::Function { .. } = unwrap_loc(value) {
+                        self.define_var(env, name.clone(), expected_ty, is_const);
+                    }
+                    let val_ty = self.check_expected(value, env, expected_ty)?;
+                    self.define_var(env, name.clone(), expected_ty, is_const);
                     Ok(val_ty)
                 } else {
-                    let val_ty = if let Expression::Function { .. } = unwrap_loc(value) {
+                    if let Expression::Function { .. } = unwrap_loc(value) {
                         let placeholder_var = self.new_var();
                         let placeholder = self.alloc_type(placeholder_var);
-                        self.define_var(env, name.clone(), placeholder, true);
+                        self.define_var(env, name.clone(), placeholder, is_const);
                         let actual_ty = self.check(value, env)?;
                         wrap_err!(self, self.unify(placeholder, actual_ty))?;
-                        actual_ty
+                        self.define_var(env, name.clone(), actual_ty, is_const);
+                        Ok(actual_ty)
                     } else {
-                        self.check(value, env)?
-                    };
-                    self.define_var(env, name.clone(), val_ty, true);
-                    Ok(val_ty)
+                        let val_ty = self.check(value, env)?;
+                        self.define_var(env, name.clone(), val_ty, is_const);
+                        Ok(val_ty)
+                    }
                 }
             }
             Expression::Assign { name, value } => {

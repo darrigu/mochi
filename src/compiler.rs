@@ -203,6 +203,27 @@ impl Compiler {
         }
     }
 
+    fn resolve_jumps(&mut self, target: BreakTarget, continue_dest: usize, end_pos: usize) {
+        match target {
+            BreakTarget::Loop {
+                continue_jumps,
+                break_jumps,
+            } => {
+                for jump_pos in continue_jumps {
+                    self.change_operand(jump_pos, continue_dest);
+                }
+                for jump_pos in break_jumps {
+                    self.change_operand(jump_pos, end_pos);
+                }
+            }
+            BreakTarget::Block { break_jumps } => {
+                for jump_pos in break_jumps {
+                    self.change_operand(jump_pos, end_pos);
+                }
+            }
+        }
+    }
+
     fn compile_expression(&mut self, expr: &Expression) -> Result<(), Diagnostic> {
         if let Expression::Loc {
             line,
@@ -331,18 +352,7 @@ impl Compiler {
 
                 let target = self.break_stack.pop().unwrap();
                 let end_pos = self.instructions.len();
-                if let BreakTarget::Loop {
-                    continue_jumps,
-                    break_jumps,
-                } = target
-                {
-                    for jump_pos in continue_jumps {
-                        self.change_operand(jump_pos, continue_dest);
-                    }
-                    for jump_pos in break_jumps {
-                        self.change_operand(jump_pos, end_pos);
-                    }
-                }
+                self.resolve_jumps(target, continue_dest, end_pos);
 
                 self.emit_atom("null");
                 Ok(())
@@ -369,18 +379,7 @@ impl Compiler {
 
                 let end_pos = self.instructions.len();
                 let target = self.break_stack.pop().unwrap();
-                if let BreakTarget::Loop {
-                    continue_jumps,
-                    break_jumps,
-                } = target
-                {
-                    for jump_pos in continue_jumps {
-                        self.change_operand(jump_pos, continue_dest);
-                    }
-                    for jump_pos in break_jumps {
-                        self.change_operand(jump_pos, end_pos);
-                    }
-                }
+                self.resolve_jumps(target, continue_dest, end_pos);
                 Ok(())
             }
             Expression::For {
@@ -450,18 +449,7 @@ impl Compiler {
 
                 let end_pos = self.instructions.len();
                 let target = self.break_stack.pop().unwrap();
-                if let BreakTarget::Loop {
-                    continue_jumps,
-                    break_jumps,
-                } = target
-                {
-                    for jump_pos in continue_jumps {
-                        self.change_operand(jump_pos, continue_dest);
-                    }
-                    for jump_pos in break_jumps {
-                        self.change_operand(jump_pos, end_pos);
-                    }
-                }
+                self.resolve_jumps(target, continue_dest, end_pos);
                 Ok(())
             }
             Expression::ForHash {
@@ -547,18 +535,7 @@ impl Compiler {
 
                 let end_pos = self.instructions.len();
                 let target = self.break_stack.pop().unwrap();
-                if let BreakTarget::Loop {
-                    continue_jumps,
-                    break_jumps,
-                } = target
-                {
-                    for jump_pos in continue_jumps {
-                        self.change_operand(jump_pos, continue_dest);
-                    }
-                    for jump_pos in break_jumps {
-                        self.change_operand(jump_pos, end_pos);
-                    }
-                }
+                self.resolve_jumps(target, continue_dest, end_pos);
                 Ok(())
             }
             Expression::Break(val_opt) => {
@@ -573,13 +550,10 @@ impl Compiler {
                 }
 
                 let offset = self.emit(Opcode::OpJump, &[9999]);
-
                 let target = self.break_stack.last_mut().unwrap();
+
                 match target {
-                    BreakTarget::Loop { break_jumps, .. } => {
-                        break_jumps.push(offset);
-                    }
-                    BreakTarget::Block { break_jumps } => {
+                    BreakTarget::Loop { break_jumps, .. } | BreakTarget::Block { break_jumps } => {
                         break_jumps.push(offset);
                     }
                 }
@@ -874,11 +848,7 @@ impl Compiler {
         if is_breakable {
             let target = self.break_stack.pop().unwrap();
             let end_pos = self.instructions.len();
-            if let BreakTarget::Block { break_jumps } = target {
-                for jump_pos in break_jumps {
-                    self.change_operand(jump_pos, end_pos);
-                }
-            }
+            self.resolve_jumps(target, 0, end_pos);
         }
         Ok(())
     }
