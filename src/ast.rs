@@ -88,7 +88,7 @@ pub enum Expression {
         arguments: Vec<Expression>,
     },
     Return(Box<Expression>),
-    Block(Vec<Expression>),
+    Block(Vec<Expression>, bool),
 
     Let {
         name: String,
@@ -122,6 +122,9 @@ pub enum Expression {
     },
 
     Question(Box<Expression>),
+
+    Break(Option<Box<Expression>>),
+    Continue,
 
     Loc {
         line: usize,

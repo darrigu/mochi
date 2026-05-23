@@ -920,4 +920,36 @@ mod tests {
             "Question operator '?' cannot be applied to type 'Number'",
         );
     }
+
+    #[test]
+    fn test_loop_break_and_continue() {
+        let input = "
+            let i = 0
+            let sum = 0
+            while i < 10 do
+                i = i + 1
+                if i == 5 do
+                    continue
+                end
+                sum = sum + i
+            end
+            sum
+        ";
+        test_script(input, Object::Number(50.0));
+    }
+
+    #[test]
+    fn test_block_break_with_value() {
+        let input = "
+            let result = do
+                let x = 5
+                if x == 5 do
+                    break 100
+                end
+                200
+            end
+            result
+        ";
+        test_script(input, Object::Number(100.0));
+    }
 }

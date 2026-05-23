@@ -15,6 +15,8 @@ pub enum Token {
     Match,
     When,
     Pipe,
+    Break,
+    Continue,
     Ident(String),
     Number(f64),
     StringLiteral(String),
@@ -195,7 +197,7 @@ impl Lexer {
 
     fn lookup_ident(&self, ident: &str) -> Token {
         match ident {
-            "fn" | "def" => Token::Fn,
+            "fn" => Token::Fn,
             "let" => Token::Let,
             "const" => Token::Const,
             "if" => Token::If,
@@ -209,6 +211,8 @@ impl Lexer {
             "in" => Token::In,
             "match" => Token::Match,
             "when" => Token::When,
+            "break" => Token::Break,
+            "continue" => Token::Continue,
             _ => Token::Ident(ident.to_string()),
         }
     }

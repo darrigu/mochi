@@ -711,7 +711,7 @@ impl TypeChecker {
                     Ok(self.alloc_type(Type::Any))
                 }
             }
-            Expression::Block(expressions) => {
+            Expression::Block(expressions, _is_breakable) => {
                 let block_env = self.new_enclosed_env(env);
                 if expressions.is_empty() {
                     return Ok(self.alloc_type(Type::Atom));
@@ -1250,6 +1250,13 @@ impl TypeChecker {
                     }
                 }
             }
+            Expression::Break(val_opt) => {
+                if let Some(val) = val_opt {
+                    let _val_ty = self.check(val, env)?;
+                }
+                Ok(self.alloc_type(Type::Any))
+            }
+            Expression::Continue => Ok(self.alloc_type(Type::Any)),
             Expression::Loc { .. } => unreachable!(),
         }
     }

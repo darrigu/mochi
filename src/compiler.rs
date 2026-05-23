@@ -17,6 +17,17 @@ macro_rules! wrap_err {
     }};
 }
 
+#[derive(Debug, Clone)]
+pub enum BreakTarget {
+    Loop {
+        continue_jumps: Vec<usize>,
+        break_jumps: Vec<usize>,
+    },
+    Block {
+        break_jumps: Vec<usize>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolScope {
     Global,
@@ -116,6 +127,7 @@ pub struct Compiler {
     pub symbol_table: SymbolTable,
     pub current_line: usize,
     pub current_col: usize,
+    pub break_stack: Vec<BreakTarget>,
 }
 
 impl Compiler {
@@ -126,6 +138,7 @@ impl Compiler {
             symbol_table: SymbolTable::new(),
             current_line: 1,
             current_col: 1,
+            break_stack: vec![],
         }
     }
 
@@ -136,6 +149,7 @@ impl Compiler {
             symbol_table: SymbolTable::new_enclosed(outer),
             current_line: 1,
             current_col: 1,
+            break_stack: vec![],
         }
     }
 
@@ -232,7 +246,7 @@ impl Compiler {
                 self.emit(Opcode::OpConstant, &[pos]);
                 Ok(())
             }
-            Expression::Block(exprs) => self.compile_block(exprs),
+            Expression::Block(exprs, is_breakable) => self.compile_block(exprs, *is_breakable),
             Expression::If {
                 condition,
                 consequence,
@@ -304,21 +318,69 @@ impl Compiler {
             }
             Expression::Loop { body } => {
                 let start_pos = self.instructions.len();
+                self.break_stack.push(BreakTarget::Loop {
+                    continue_jumps: vec![],
+                    break_jumps: vec![],
+                });
+
                 self.compile_expression(body)?;
                 self.emit(Opcode::OpPop, &[]);
+
+                let continue_dest = self.instructions.len();
                 self.emit(Opcode::OpJump, &[start_pos]);
+
+                let target = self.break_stack.pop().unwrap();
+                let end_pos = self.instructions.len();
+                if let BreakTarget::Loop {
+                    continue_jumps,
+                    break_jumps,
+                } = target
+                {
+                    for jump_pos in continue_jumps {
+                        self.change_operand(jump_pos, continue_dest);
+                    }
+                    for jump_pos in break_jumps {
+                        self.change_operand(jump_pos, end_pos);
+                    }
+                }
+
                 self.emit_atom("null");
                 Ok(())
             }
             Expression::While { condition, body } => {
                 let start_pos = self.instructions.len();
+                self.break_stack.push(BreakTarget::Loop {
+                    continue_jumps: vec![],
+                    break_jumps: vec![],
+                });
+
                 self.compile_expression(condition)?;
                 let jump_out_pos = self.emit(Opcode::OpJumpNotTruthy, &[9999]);
+
                 self.compile_expression(body)?;
                 self.emit(Opcode::OpPop, &[]);
+
+                let continue_dest = self.instructions.len();
                 self.emit(Opcode::OpJump, &[start_pos]);
-                self.change_operand(jump_out_pos, self.instructions.len());
+
+                let normal_exit = self.instructions.len();
+                self.change_operand(jump_out_pos, normal_exit);
                 self.emit_atom("null");
+
+                let end_pos = self.instructions.len();
+                let target = self.break_stack.pop().unwrap();
+                if let BreakTarget::Loop {
+                    continue_jumps,
+                    break_jumps,
+                } = target
+                {
+                    for jump_pos in continue_jumps {
+                        self.change_operand(jump_pos, continue_dest);
+                    }
+                    for jump_pos in break_jumps {
+                        self.change_operand(jump_pos, end_pos);
+                    }
+                }
                 Ok(())
             }
             Expression::For {
@@ -352,6 +414,11 @@ impl Compiler {
                 self.emit(Opcode::OpPop, &[]);
 
                 let loop_start = self.instructions.len();
+                self.break_stack.push(BreakTarget::Loop {
+                    continue_jumps: vec![],
+                    break_jumps: vec![],
+                });
+
                 self.emit_get(&idx_sym);
                 self.emit_get(&len_sym);
                 self.emit(Opcode::OpLess, &[]);
@@ -367,6 +434,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Opcode::OpPop, &[]);
 
+                let continue_dest = self.instructions.len();
                 self.emit_get(&idx_sym);
                 let one_pos = self.add_constant(Object::Number(1.0));
                 self.emit(Opcode::OpConstant, &[one_pos]);
@@ -375,8 +443,25 @@ impl Compiler {
                 self.emit(Opcode::OpPop, &[]);
 
                 self.emit(Opcode::OpJump, &[loop_start]);
-                self.change_operand(jump_out_pos, self.instructions.len());
+
+                let normal_exit = self.instructions.len();
+                self.change_operand(jump_out_pos, normal_exit);
                 self.emit_atom("null");
+
+                let end_pos = self.instructions.len();
+                let target = self.break_stack.pop().unwrap();
+                if let BreakTarget::Loop {
+                    continue_jumps,
+                    break_jumps,
+                } = target
+                {
+                    for jump_pos in continue_jumps {
+                        self.change_operand(jump_pos, continue_dest);
+                    }
+                    for jump_pos in break_jumps {
+                        self.change_operand(jump_pos, end_pos);
+                    }
+                }
                 Ok(())
             }
             Expression::ForHash {
@@ -419,6 +504,11 @@ impl Compiler {
                 self.emit(Opcode::OpPop, &[]);
 
                 let loop_start = self.instructions.len();
+                self.break_stack.push(BreakTarget::Loop {
+                    continue_jumps: vec![],
+                    break_jumps: vec![],
+                });
+
                 self.emit_get(&idx_sym);
                 self.emit_get(&len_sym);
                 self.emit(Opcode::OpLess, &[]);
@@ -441,6 +531,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Opcode::OpPop, &[]);
 
+                let continue_dest = self.instructions.len();
                 self.emit_get(&idx_sym);
                 let one_pos = self.add_constant(Object::Number(1.0));
                 self.emit(Opcode::OpConstant, &[one_pos]);
@@ -449,7 +540,69 @@ impl Compiler {
                 self.emit(Opcode::OpPop, &[]);
 
                 self.emit(Opcode::OpJump, &[loop_start]);
-                self.change_operand(jump_out_pos, self.instructions.len());
+
+                let normal_exit = self.instructions.len();
+                self.change_operand(jump_out_pos, normal_exit);
+                self.emit_atom("null");
+
+                let end_pos = self.instructions.len();
+                let target = self.break_stack.pop().unwrap();
+                if let BreakTarget::Loop {
+                    continue_jumps,
+                    break_jumps,
+                } = target
+                {
+                    for jump_pos in continue_jumps {
+                        self.change_operand(jump_pos, continue_dest);
+                    }
+                    for jump_pos in break_jumps {
+                        self.change_operand(jump_pos, end_pos);
+                    }
+                }
+                Ok(())
+            }
+            Expression::Break(val_opt) => {
+                if self.break_stack.is_empty() {
+                    return self.err("break statement outside loop or block context".to_string());
+                }
+
+                if let Some(val) = val_opt {
+                    self.compile_expression(val)?;
+                } else {
+                    self.emit_atom("null");
+                }
+
+                let offset = self.emit(Opcode::OpJump, &[9999]);
+
+                let target = self.break_stack.last_mut().unwrap();
+                match target {
+                    BreakTarget::Loop { break_jumps, .. } => {
+                        break_jumps.push(offset);
+                    }
+                    BreakTarget::Block { break_jumps } => {
+                        break_jumps.push(offset);
+                    }
+                }
+                Ok(())
+            }
+            Expression::Continue => {
+                let mut loop_idx = None;
+                for (i, target) in self.break_stack.iter().enumerate().rev() {
+                    if let BreakTarget::Loop { .. } = target {
+                        loop_idx = Some(i);
+                        break;
+                    }
+                }
+
+                if let Some(idx) = loop_idx {
+                    let offset = self.emit(Opcode::OpJump, &[9999]);
+
+                    if let BreakTarget::Loop { continue_jumps, .. } = &mut self.break_stack[idx] {
+                        continue_jumps.push(offset);
+                    }
+                } else {
+                    return self.err("continue statement outside loop context".to_string());
+                }
                 self.emit_atom("null");
                 Ok(())
             }
@@ -578,7 +731,7 @@ impl Compiler {
         for (param, _type_ann) in parameters {
             fn_compiler.symbol_table.define(param.clone(), false);
         }
-        fn_compiler.compile_block(body)?;
+        fn_compiler.compile_block(body, false)?;
         fn_compiler.emit(Opcode::OpReturnValue, &[]);
 
         let num_locals = fn_compiler.symbol_table.num_definitions;
@@ -696,15 +849,35 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_block(&mut self, expressions: &[Expression]) -> Result<(), Diagnostic> {
+    fn compile_block(
+        &mut self,
+        expressions: &[Expression],
+        is_breakable: bool,
+    ) -> Result<(), Diagnostic> {
         if expressions.is_empty() {
             self.emit_atom("null");
             return Ok(());
         }
+        if is_breakable {
+            self.break_stack.push(BreakTarget::Block {
+                break_jumps: vec![],
+            });
+        }
+
         for (i, expr) in expressions.iter().enumerate() {
             self.compile_expression(expr)?;
             if i != expressions.len() - 1 {
                 self.emit(Opcode::OpPop, &[]);
+            }
+        }
+
+        if is_breakable {
+            let target = self.break_stack.pop().unwrap();
+            let end_pos = self.instructions.len();
+            if let BreakTarget::Block { break_jumps } = target {
+                for jump_pos in break_jumps {
+                    self.change_operand(jump_pos, end_pos);
+                }
             }
         }
         Ok(())

@@ -127,6 +127,8 @@ impl Parser {
             Token::While => self.parse_while_expression(),
             Token::For => self.parse_for_expression(),
             Token::Match => self.parse_match_expression(),
+            Token::Break => self.parse_break_expression(),
+            Token::Continue => self.parse_continue_expression(),
             _ => {
                 self.report_error();
                 None
@@ -555,7 +557,7 @@ impl Parser {
             );
             return None;
         }
-        let expr = Some(Expression::Block(exprs));
+        let expr = Some(Expression::Block(exprs, true));
         self.wrap(expr, line, col)
     }
 
@@ -706,13 +708,13 @@ impl Parser {
             self.next_token();
 
             let consequence_exprs = self.parse_block_expressions();
-            let consequence = Expression::Block(consequence_exprs);
+            let consequence = Expression::Block(consequence_exprs, false);
             let mut alternative = None;
 
             if self.current_token == Token::Else {
                 self.next_token();
                 let alt_exprs = self.parse_block_expressions();
-                alternative = Some(Box::new(Expression::Block(alt_exprs)));
+                alternative = Some(Box::new(Expression::Block(alt_exprs, false)));
             }
 
             if self.current_token != Token::End {
@@ -919,6 +921,7 @@ impl Parser {
             self.next_token();
             self.next_token();
             let exprs = self.parse_block_expressions();
+
             if self.current_token != Token::End {
                 self.report_error_with_hint(
                     format!(
@@ -929,7 +932,8 @@ impl Parser {
                 );
                 return None;
             }
-            let expr = Some(Expression::Block(exprs));
+
+            let expr = Some(Expression::Block(exprs, false));
             self.wrap(expr, line, col)
         } else {
             self.next_token();
@@ -1126,6 +1130,38 @@ impl Parser {
             cases,
         });
         self.wrap(expr, line, col)
+    }
+
+    fn parse_break_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+
+        let has_expr = !matches!(
+            self.peek_token,
+            Token::End
+                | Token::Else
+                | Token::Comma
+                | Token::RParen
+                | Token::RBracket
+                | Token::RBrace
+                | Token::Pipe
+                | Token::EOF
+        );
+
+        let expr = if has_expr {
+            self.next_token();
+            Some(Box::new(self.parse_expression(Precedence::Lowest)?))
+        } else {
+            None
+        };
+
+        self.wrap(Some(Expression::Break(expr)), line, col)
+    }
+
+    fn parse_continue_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        self.wrap(Some(Expression::Continue), line, col)
     }
 
     fn token_precedence(token: &Token) -> Precedence {
