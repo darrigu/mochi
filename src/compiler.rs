@@ -1,5 +1,5 @@
 use crate::ast::{Expression, Pattern, Program, TypeAnn};
-use crate::code::{Opcode, make};
+use crate::code::{make, Opcode};
 use crate::error_reporter::Diagnostic;
 use crate::object::Object;
 use std::collections::HashMap;
@@ -283,6 +283,10 @@ impl Compiler {
                 type_ann: _,
                 value,
             } => self.compile_binding(name, value, true),
+            Expression::TypeAlias { .. } => {
+                self.emit_atom("null");
+                Ok(())
+            }
             Expression::Return(expr) => {
                 self.compile_expression(expr)?;
                 self.emit(Opcode::OpReturnValue, &[]);

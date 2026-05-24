@@ -37,6 +37,7 @@ pub enum Type {
 #[derive(Clone, Debug)]
 pub struct TypeEnv {
     pub store: HashMap<String, (TypeIdx, bool)>,
+    pub aliases: HashMap<String, TypeIdx>,
     pub outer: Option<EnvIdx>,
 }
 
@@ -86,7 +87,11 @@ impl TypeChecker {
         store.insert("print".to_string(), (any_ty, true));
 
         let idx = self.envs.len();
-        self.envs.push(TypeEnv { store, outer: None });
+        self.envs.push(TypeEnv {
+            store,
+            aliases: HashMap::new(),
+            outer: None,
+        });
         EnvIdx(idx)
     }
 
@@ -94,6 +99,7 @@ impl TypeChecker {
         let idx = self.envs.len();
         self.envs.push(TypeEnv {
             store: HashMap::new(),
+            aliases: HashMap::new(),
             outer: Some(outer),
         });
         EnvIdx(idx)
@@ -109,6 +115,18 @@ impl TypeChecker {
             let env_node = &self.envs[curr_idx.0];
             if let Some(entry) = env_node.store.get(name) {
                 return Some(entry.clone());
+            }
+            current = env_node.outer;
+        }
+        None
+    }
+
+    pub fn resolve_alias(&self, env: EnvIdx, name: &str) -> Option<TypeIdx> {
+        let mut current = Some(env);
+        while let Some(curr_idx) = current {
+            let env_node = &self.envs[curr_idx.0];
+            if let Some(&ty) = env_node.aliases.get(name) {
+                return Some(ty);
             }
             current = env_node.outer;
         }
@@ -405,34 +423,47 @@ impl TypeChecker {
         res
     }
 
-    fn map_type_ann(&mut self, ann: &TypeAnn) -> TypeIdx {
+    fn map_type_ann(&mut self, ann: &TypeAnn, env: EnvIdx) -> Result<TypeIdx, String> {
         match ann {
-            TypeAnn::Number => self.alloc_type(Type::Number),
-            TypeAnn::String => self.alloc_type(Type::String),
-            TypeAnn::Atom => self.alloc_type(Type::Atom),
-            TypeAnn::Any => self.alloc_type(Type::Any),
+            TypeAnn::Number => Ok(self.alloc_type(Type::Number)),
+            TypeAnn::String => Ok(self.alloc_type(Type::String)),
+            TypeAnn::Atom => Ok(self.alloc_type(Type::Atom)),
+            TypeAnn::Any => Ok(self.alloc_type(Type::Any)),
+            TypeAnn::Custom(name) => {
+                if let Some(ty) = self.resolve_alias(env, name) {
+                    Ok(ty)
+                } else {
+                    Err(format!("Unknown type alias: '{}'", name))
+                }
+            }
             TypeAnn::Array(inner) => {
-                let mapped_inner = self.map_type_ann(inner);
-                self.alloc_type(Type::Array(mapped_inner))
+                let mapped_inner = self.map_type_ann(inner, env)?;
+                Ok(self.alloc_type(Type::Array(mapped_inner)))
             }
             TypeAnn::Hash(fields) => {
                 let mut mapped_fields = HashMap::new();
                 for (k, v) in fields {
-                    mapped_fields.insert(k.clone(), self.map_type_ann(v));
+                    mapped_fields.insert(k.clone(), self.map_type_ann(v, env)?);
                 }
-                self.alloc_type(Type::Hash(mapped_fields))
+                Ok(self.alloc_type(Type::Hash(mapped_fields)))
             }
             TypeAnn::Function { params, ret } => {
-                let mapped_params = params.iter().map(|p| self.map_type_ann(p)).collect();
-                let mapped_ret = self.map_type_ann(ret);
-                self.alloc_type(Type::Function {
+                let mut mapped_params = vec![];
+                for p in params {
+                    mapped_params.push(self.map_type_ann(p, env)?);
+                }
+                let mapped_ret = self.map_type_ann(ret, env)?;
+                Ok(self.alloc_type(Type::Function {
                     params: mapped_params,
                     ret: mapped_ret,
-                })
+                }))
             }
             TypeAnn::Tuple(elements) => {
-                let mapped_elements = elements.iter().map(|e| self.map_type_ann(e)).collect();
-                self.alloc_type(Type::Tuple(mapped_elements))
+                let mut mapped_elements = vec![];
+                for e in elements {
+                    mapped_elements.push(self.map_type_ann(e, env)?);
+                }
+                Ok(self.alloc_type(Type::Tuple(mapped_elements)))
             }
         }
     }
@@ -733,7 +764,7 @@ impl TypeChecker {
                 let is_const = matches!(unwrap_loc(expr), Expression::Const { .. });
 
                 if let Some(ann) = type_ann {
-                    let expected_ty = self.map_type_ann(ann);
+                    let expected_ty = wrap_err!(self, self.map_type_ann(ann, env))?;
                     if let Expression::Function { .. } = unwrap_loc(value) {
                         self.define_var(env, name.clone(), expected_ty, is_const);
                     }
@@ -755,6 +786,11 @@ impl TypeChecker {
                         Ok(val_ty)
                     }
                 }
+            }
+            Expression::TypeAlias { name, type_ann } => {
+                let ty = wrap_err!(self, self.map_type_ann(type_ann, env))?;
+                self.envs[env.0].aliases.insert(name.clone(), ty);
+                Ok(self.alloc_type(Type::Atom))
             }
             Expression::Assign { name, value } => {
                 let resolved = self.resolve_var(env, name);
@@ -788,7 +824,7 @@ impl TypeChecker {
 
                 for (param, type_ann) in parameters {
                     let p_ty = if let Some(ann) = type_ann {
-                        self.map_type_ann(ann)
+                        wrap_err!(self, self.map_type_ann(ann, env))?
                     } else {
                         let v = self.new_var();
                         self.alloc_type(v)
@@ -799,7 +835,7 @@ impl TypeChecker {
 
                 let prev_ret = self.current_return_type;
                 let expected_ret = if let Some(ann) = return_type {
-                    self.map_type_ann(ann)
+                    wrap_err!(self, self.map_type_ann(ann, env))?
                 } else {
                     let v = self.new_var();
                     self.alloc_type(v)
@@ -940,7 +976,8 @@ impl TypeChecker {
                     Type::Number => match method.as_str() {
                         "to_string" => {
                             if arguments.len() != 0 {
-                                return self.err("Number:to_string expects 0 arguments".to_string());
+                                return self
+                                    .err("Number:to_string expects 0 arguments".to_string());
                             }
                             Ok(self.alloc_type(Type::String))
                         }

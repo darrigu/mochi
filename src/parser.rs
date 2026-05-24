@@ -122,6 +122,7 @@ impl Parser {
             Token::LBrace => self.parse_hash_literal(),
             Token::Let => self.parse_let_expression(),
             Token::Const => self.parse_const_expression(),
+            Token::Type => self.parse_type_alias_expression(),
             Token::Return => self.parse_return_expression(),
             Token::Loop => self.parse_loop_expression(),
             Token::While => self.parse_while_expression(),
@@ -304,10 +305,7 @@ impl Parser {
                 "String" => Some(TypeAnn::String),
                 "Atom" => Some(TypeAnn::Atom),
                 "Any" => Some(TypeAnn::Any),
-                _ => {
-                    self.report_error_with_msg(format!("Unknown type annotation: '{}'", name));
-                    None
-                }
+                _ => Some(TypeAnn::Custom(name.clone())),
             },
             Token::LParen => {
                 let mut types = vec![];
@@ -515,6 +513,35 @@ impl Parser {
             type_ann,
             value: Box::new(value),
         });
+        self.wrap(expr, line, col)
+    }
+
+    fn parse_type_alias_expression(&mut self) -> Option<Expression> {
+        let line = self.cur_line;
+        let col = self.cur_col;
+        self.next_token();
+
+        let name = match &self.current_token {
+            Token::Ident(name) => name.clone(),
+            _ => {
+                self.report_error_with_msg(format!(
+                    "Expected identifier for type name, got {:?}",
+                    self.current_token
+                ));
+                return None;
+            }
+        };
+
+        if !self.expect_peek(Token::Assign) {
+            self.report_error_with_hint(
+                format!("Expected '=' after type name '{}'", name),
+                "Type aliases must be assigned a shape. Try adding '= <type>'".to_string(),
+            );
+            return None;
+        }
+
+        let type_ann = self.parse_type_annotation()?;
+        let expr = Some(Expression::TypeAlias { name, type_ann });
         self.wrap(expr, line, col)
     }
 

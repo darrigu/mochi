@@ -1015,4 +1015,36 @@ mod tests {
         test_type_error("42:abs(1)", "Number:abs expects 0 arguments");
         test_type_error("42:unknown()", "Unknown method 'unknown' on type Number");
     }
+
+    #[test]
+    fn test_custom_types() {
+        let input = "
+            type User = { name: String, age: Number }
+            let me: User = { name: \"Hugo\", age: 26 }
+            me.age
+        ";
+        test_script(input, Object::Number(26.0));
+
+        let input = "
+            type ID = String
+            type Record = { id: ID, data: Number }
+            let history: [Record] = [
+                { id: \"a1\", data: 100 },
+                { id: \"b2\", data: 200 }
+            ]
+            history[1].data
+        ";
+        test_script(input, Object::Number(200.0));
+
+        test_type_error(
+            "let x: UnknownType = 5",
+            "Unknown type alias: 'UnknownType'",
+        );
+
+        let input = "
+            type User = { name: String }
+            let u: User = { name: 5 }
+        ";
+        test_type_error(input, "cannot unify 'Number' with 'String'");
+    }
 }

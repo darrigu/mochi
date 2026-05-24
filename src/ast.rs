@@ -28,6 +28,7 @@ pub enum TypeAnn {
     },
     Tuple(Vec<TypeAnn>),
     Any,
+    Custom(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +100,10 @@ pub enum Expression {
         name: String,
         type_ann: Option<TypeAnn>,
         value: Box<Expression>,
+    },
+    TypeAlias {
+        name: String,
+        type_ann: TypeAnn,
     },
     Assign {
         name: String,
