@@ -6,6 +6,7 @@ mod lexer;
 mod object;
 mod parser;
 mod serializer;
+mod stdlib;
 mod tests;
 mod type_checker;
 mod vm;

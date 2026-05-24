@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use crate::code::Opcode;
 use crate::compiler::Bytecode;
 use crate::object::Object;
+use crate::stdlib;
 
 const STACK_SIZE: usize = 2048;
 const GLOBALS_SIZE: usize = 65536;
@@ -324,18 +325,30 @@ impl VM {
                     let method_name = self.constants[const_idx].clone();
 
                     let obj = self.pop();
+                    let method_key = to_key_string(&method_name);
 
                     let func = match &obj {
                         Object::Hash(hash) => hash
                             .borrow()
-                            .get(&to_key_string(&method_name))
+                            .get(&method_key)
                             .cloned()
                             .unwrap_or(Object::Atom("null".to_string())),
-                        _ => return Err("Method calls only supported on objects".into()),
+                        Object::String(_) => stdlib::get_string_method(&method_key),
+                        Object::Array(_) => stdlib::get_array_method(&method_key),
+                        Object::Number(_) => stdlib::get_number_method(&method_key),
+                        _ => {
+                            return Err(format!(
+                                "Method calls not supported on this type: {:?}",
+                                obj
+                            ))
+                        }
                     };
 
-                    self.push(func)?;
+                    if matches!(func, Object::Atom(ref s) if s == "null") {
+                        return Err(format!("Method '{}' not found on object", method_key));
+                    }
 
+                    self.push(func)?;
                     self.push(obj)?;
                 }
 

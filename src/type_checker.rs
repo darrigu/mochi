@@ -884,6 +884,74 @@ impl TypeChecker {
                 let resolved_left = self.find_deep(left_ty);
 
                 match self.get_type(resolved_left).clone() {
+                    Type::String => match method.as_str() {
+                        "split" => {
+                            if arguments.len() != 1 {
+                                return self.err("String:split expects 1 argument".to_string());
+                            }
+                            let str_ty = self.alloc_type(Type::String);
+                            self.check_expected(&arguments[0], env, str_ty)?;
+                            Ok(self.alloc_type(Type::Array(str_ty)))
+                        }
+                        "len" => {
+                            if arguments.len() != 0 {
+                                return self.err("String:len expects 0 arguments".to_string());
+                            }
+                            Ok(self.alloc_type(Type::Number))
+                        }
+                        "trim" | "to_upper" | "to_lower" => {
+                            if arguments.len() != 0 {
+                                return self.err(format!("String:{} expects 0 arguments", method));
+                            }
+                            Ok(self.alloc_type(Type::String))
+                        }
+                        _ => self.err(format!("Unknown method '{}' on type String", method)),
+                    },
+                    Type::Array(inner_ty) => match method.as_str() {
+                        "push" => {
+                            if arguments.len() != 1 {
+                                return self.err("Array:push expects 1 argument".to_string());
+                            }
+                            self.check_expected(&arguments[0], env, inner_ty)?;
+                            Ok(self.alloc_type(Type::Number))
+                        }
+                        "pop" => {
+                            if arguments.len() != 0 {
+                                return self.err("Array:pop expects 0 arguments".to_string());
+                            }
+                            Ok(inner_ty)
+                        }
+                        "len" => {
+                            if arguments.len() != 0 {
+                                return self.err("Array:len expects 0 arguments".to_string());
+                            }
+                            Ok(self.alloc_type(Type::Number))
+                        }
+                        "join" => {
+                            if arguments.len() != 1 {
+                                return self.err("Array:join expects 1 argument".to_string());
+                            }
+                            let str_ty = self.alloc_type(Type::String);
+                            self.check_expected(&arguments[0], env, str_ty)?;
+                            Ok(self.alloc_type(Type::String))
+                        }
+                        _ => self.err(format!("Unknown method '{}' on type Array", method)),
+                    },
+                    Type::Number => match method.as_str() {
+                        "to_string" => {
+                            if arguments.len() != 0 {
+                                return self.err("Number:to_string expects 0 arguments".to_string());
+                            }
+                            Ok(self.alloc_type(Type::String))
+                        }
+                        "abs" | "round" | "floor" | "ceil" => {
+                            if arguments.len() != 0 {
+                                return self.err(format!("Number:{} expects 0 arguments", method));
+                            }
+                            Ok(self.alloc_type(Type::Number))
+                        }
+                        _ => self.err(format!("Unknown method '{}' on type Number", method)),
+                    },
                     Type::Hash(fields) => {
                         if let Some(&method_ty) = fields.get(method) {
                             let resolved_method = self.find_deep(method_ty);

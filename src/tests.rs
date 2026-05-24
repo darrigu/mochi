@@ -681,7 +681,7 @@ mod tests {
 
         test_type_error(
             "let primitive = 3.14 \n primitive:bump()",
-            "receiver is of type 'Number', which is not an object",
+            "Unknown method 'bump' on type Number",
         );
 
         test_type_error(
@@ -951,5 +951,68 @@ mod tests {
             result
         ";
         test_script(input, Object::Number(100.0));
+    }
+
+    #[test]
+    fn test_stdlib_string() {
+        test_script("\"hello\":len()", Object::Number(5.0));
+        test_script("\"  mochi  \":trim()", Object::String("mochi".to_string()));
+        test_script("\"hello\":to_upper()", Object::String("HELLO".to_string()));
+        test_script("\"WORLD\":to_lower()", Object::String("world".to_string()));
+
+        let input = "
+            let parts = \"a,b,c\":split(\",\")
+            parts[1]
+        ";
+        test_script(input, Object::String("b".to_string()));
+    }
+
+    #[test]
+    fn test_stdlib_array() {
+        test_script("[1, 2, 3]:len()", Object::Number(3.0));
+
+        let input_push = "
+            let arr = [10, 20]
+            arr:push(30)
+            arr[2]
+        ";
+        test_script(input_push, Object::Number(30.0));
+
+        let input_pop = "
+            let arr = [10, 20, 30]
+            arr:pop()
+        ";
+        test_script(input_pop, Object::Number(30.0));
+
+        let input_join = "
+            let arr = [\"mochi\", \"is\", \"cool\"]
+            arr:join(\" \")
+        ";
+        test_script(input_join, Object::String("mochi is cool".to_string()));
+    }
+
+    #[test]
+    fn test_stdlib_number() {
+        test_script("42:to_string()", Object::String("42".to_string()));
+
+        let input_abs = "let x = -10 x:abs()";
+        test_script(input_abs, Object::Number(10.0));
+
+        test_script("3.7:round()", Object::Number(4.0));
+        test_script("3.2:round()", Object::Number(3.0));
+        test_script("3.9:floor()", Object::Number(3.0));
+        test_script("3.1:ceil()", Object::Number(4.0));
+    }
+
+    #[test]
+    fn test_stdlib_type_errors() {
+        test_type_error("\"hello\":split(5)", "cannot unify 'Number' with 'String'");
+        test_type_error("\"hello\":len(\"args\")", "String:len expects 0 arguments");
+        test_type_error(
+            "let arr = [1, 2] arr:join(3)",
+            "cannot unify 'Number' with 'String'",
+        );
+        test_type_error("42:abs(1)", "Number:abs expects 0 arguments");
+        test_type_error("42:unknown()", "Unknown method 'unknown' on type Number");
     }
 }
